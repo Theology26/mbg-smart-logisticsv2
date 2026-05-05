@@ -1,0 +1,467 @@
+package handlers
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"backend-golang/internal/config"
+	"backend-golang/internal/models"
+	"backend-golang/internal/services/expiration"
+	"backend-golang/internal/services/gemini"
+	"backend-golang/internal/services/osrm"
+	ws "backend-golang/internal/websocket"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
+)
+
+// ============================================================================
+// HTTP Handlers — All API Endpoints
+// ============================================================================
+
+// Handler holds shared dependencies for all HTTP handlers.
+type Handler struct {
+	DB     *gorm.DB
+	Config *config.Config
+	Gemini *gemini.Client
+	OSRM   *osrm.Client
+	WSHub  *ws.Hub
+}
+
+// NewHandler creates a new Handler with all dependencies injected.
+func NewHandler(db *gorm.DB, cfg *config.Config, osrmClient *osrm.Client, hub *ws.Hub) *Handler {
+	return &Handler{
+		DB:     db,
+		Config: cfg,
+		Gemini: gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel),
+		OSRM:   osrmClient,
+		WSHub:  hub,
+	}
+}
+
+// JSON is a shorthand for standardized API response.
+func JSON(c *gin.Context, status int, message string, data interface{}) {
+	c.JSON(status, gin.H{
+		"status":  status,
+		"message": message,
+		"data":    data,
+	})
+}
+
+// ============================================================================
+// Auth Handlers
+// ============================================================================
+
+// Login authenticates a user and returns a JWT token.
+// POST /api/auth/login
+func (h *Handler) Login(c *gin.Context) {
+	var req models.LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	var user models.User
+	if err := h.DB.Where("email = ?", req.Email).First(&user).Error; err != nil {
+		JSON(c, 401, "Invalid email or password", nil)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		JSON(c, 401, "Invalid email or password", nil)
+		return
+	}
+
+	token, err := generateJWT(user.ID, user.Role, h.Config)
+	if err != nil {
+		JSON(c, 500, "Failed to generate token", nil)
+		return
+	}
+
+	JSON(c, 200, "Login successful", gin.H{
+		"token": token,
+		"user": gin.H{
+			"id": user.ID, "name": user.Name,
+			"email": user.Email, "role": user.Role,
+		},
+	})
+}
+
+// Register creates a new user account.
+// POST /api/auth/register
+func (h *Handler) Register(c *gin.Context) {
+	var req models.RegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		JSON(c, 500, "Failed to hash password", nil)
+		return
+	}
+
+	user := models.User{
+		Name:     req.Name,
+		Email:    req.Email,
+		Password: string(hashedPassword),
+		Role:     req.Role,
+	}
+
+	if err := h.DB.Create(&user).Error; err != nil {
+		JSON(c, 500, "Registration failed: "+err.Error(), nil)
+		return
+	}
+
+	JSON(c, 201, "User registered successfully", gin.H{
+		"id": user.ID, "email": user.Email, "role": user.Role,
+	})
+}
+
+// ============================================================================
+// Schools CRUD
+// ============================================================================
+
+func (h *Handler) GetSchools(c *gin.Context) {
+	var schools []models.School
+	h.DB.Order("name ASC").Find(&schools)
+	JSON(c, 200, "Schools retrieved", schools)
+}
+
+func (h *Handler) CreateSchool(c *gin.Context) {
+	var school models.School
+	if err := c.ShouldBindJSON(&school); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+	h.DB.Create(&school)
+	JSON(c, 201, "School created", school)
+}
+
+func (h *Handler) UpdateSchool(c *gin.Context) {
+	id := c.Param("id")
+	var school models.School
+	if err := h.DB.First(&school, id).Error; err != nil {
+		JSON(c, 404, "School not found", nil)
+		return
+	}
+	if err := c.ShouldBindJSON(&school); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+	h.DB.Save(&school)
+	JSON(c, 200, "School updated", school)
+}
+
+func (h *Handler) DeleteSchool(c *gin.Context) {
+	id := c.Param("id")
+	h.DB.Delete(&models.School{}, id)
+	JSON(c, 200, "School deleted", nil)
+}
+
+// ============================================================================
+// Ingredients CRUD
+// ============================================================================
+
+func (h *Handler) GetIngredients(c *gin.Context) {
+	var items []models.Ingredient
+	h.DB.Order("name ASC").Find(&items)
+	JSON(c, 200, "Ingredients retrieved", items)
+}
+
+func (h *Handler) CreateIngredient(c *gin.Context) {
+	var item models.Ingredient
+	if err := c.ShouldBindJSON(&item); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+	h.DB.Create(&item)
+	JSON(c, 201, "Ingredient created", item)
+}
+
+// ============================================================================
+// Menus CRUD
+// ============================================================================
+
+func (h *Handler) GetMenus(c *gin.Context) {
+	var menus []models.Menu
+	h.DB.Order("name ASC").Find(&menus)
+	JSON(c, 200, "Menus retrieved", menus)
+}
+
+func (h *Handler) CreateMenu(c *gin.Context) {
+	var menu models.Menu
+	if err := c.ShouldBindJSON(&menu); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+	h.DB.Create(&menu)
+	JSON(c, 201, "Menu created", menu)
+}
+
+// ============================================================================
+// Schedules — with Expiration Calculation
+// ============================================================================
+
+func (h *Handler) GetSchedules(c *gin.Context) {
+	var schedules []models.Schedule
+	h.DB.Preload("Menu").Order("cooking_completion_time DESC").Find(&schedules)
+	JSON(c, 200, "Schedules retrieved", schedules)
+}
+
+func (h *Handler) CreateSchedule(c *gin.Context) {
+	var schedule models.Schedule
+	if err := c.ShouldBindJSON(&schedule); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	// Load the menu to get category for expiration calculation
+	var menu models.Menu
+	if err := h.DB.First(&menu, schedule.MenuID).Error; err != nil {
+		JSON(c, 404, "Menu not found", nil)
+		return
+	}
+
+	// Calculate expiration using the rule-based service
+	result := expiration.CalculateExpiration(menu.Category, schedule.CookingCompletionTime, 28.0)
+	schedule.ExpirationTime = result.ExpirationTime
+	schedule.EpsilonScore = result.EpsilonScore
+
+	h.DB.Create(&schedule)
+	JSON(c, 201, "Schedule created with expiration", gin.H{
+		"schedule":   schedule,
+		"expiration": result,
+	})
+}
+
+// ============================================================================
+// Expiration Calculator (standalone endpoint)
+// ============================================================================
+
+// CalculateExpiration computes expiration without creating a schedule.
+// POST /api/expiration/calculate
+func (h *Handler) CalculateExpiration(c *gin.Context) {
+	var req models.ExpirationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	cookTime, err := time.Parse(time.RFC3339, req.CookTime)
+	if err != nil {
+		JSON(c, 400, "Invalid cook_time format (use RFC3339)", nil)
+		return
+	}
+
+	result := expiration.CalculateExpiration(req.Category, cookTime, req.Temperature)
+
+	JSON(c, 200, "Expiration calculated", models.ExpirationResponse{
+		Category:       result.Category,
+		CookTime:       result.CookTime,
+		ExpirationTime: result.ExpirationTime,
+		ShelfLifeHours: result.ShelfLifeHours,
+		EpsilonScore:   result.EpsilonScore,
+		Temperature:    result.Temperature,
+		TempAdjusted:   result.TempAdjusted,
+	})
+}
+
+// ============================================================================
+// Deliveries CRUD
+// ============================================================================
+
+func (h *Handler) GetDeliveries(c *gin.Context) {
+	var deliveries []models.Delivery
+	h.DB.Preload("Schedule.Menu").Preload("School").Preload("Courier").
+		Order("created_at DESC").Find(&deliveries)
+	JSON(c, 200, "Deliveries retrieved", deliveries)
+}
+
+func (h *Handler) CreateDelivery(c *gin.Context) {
+	var delivery models.Delivery
+	if err := c.ShouldBindJSON(&delivery); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+	h.DB.Create(&delivery)
+	JSON(c, 201, "Delivery created", delivery)
+}
+
+func (h *Handler) UpdateDeliveryStatus(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Status string `json:"status" binding:"required,oneof=pending in_transit delivered failed"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	var delivery models.Delivery
+	if err := h.DB.First(&delivery, id).Error; err != nil {
+		JSON(c, 404, "Delivery not found", nil)
+		return
+	}
+
+	updates := map[string]interface{}{"status": req.Status}
+	if req.Status == "delivered" {
+		now := time.Now()
+		updates["actual_delivery_time"] = &now
+	}
+
+	h.DB.Model(&delivery).Updates(updates)
+	JSON(c, 200, "Delivery status updated", delivery)
+}
+
+// ============================================================================
+// Batch Tracking — POST /api/tracking/batch
+// ============================================================================
+// Courier app caches GPS points locally, sends them in bulk every few minutes.
+// After saving, broadcasts a refresh signal via WebSocket to dashboard clients.
+
+func (h *Handler) BatchTracking(c *gin.Context) {
+	var req models.BatchTrackingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	var records []models.TrackingHistory
+	for _, pt := range req.Points {
+		recordedAt, err := time.Parse(time.RFC3339, pt.RecordedAt)
+		if err != nil {
+			JSON(c, 400, "Invalid recorded_at format for point: "+pt.RecordedAt, nil)
+			return
+		}
+
+		records = append(records, models.TrackingHistory{
+			CourierID:  req.CourierID,
+			DeliveryID: req.DeliveryID,
+			Latitude:   pt.Latitude,
+			Longitude:  pt.Longitude,
+			RecordedAt: recordedAt,
+			Speed:      pt.Speed,
+			Heading:    pt.Heading,
+			Accuracy:   pt.Accuracy,
+		})
+	}
+
+	// Bulk insert
+	if err := h.DB.Create(&records).Error; err != nil {
+		JSON(c, 500, "Failed to save tracking data: "+err.Error(), nil)
+		return
+	}
+
+	// Get the latest position for context
+	latest := records[len(records)-1]
+
+	// Broadcast refresh signal to dashboard WebSocket clients
+	h.WSHub.BroadcastRefresh("tracking_update", fmt.Sprintf(
+		`{"courier_id":%d,"points_count":%d,"latest_lat":%.6f,"latest_lng":%.6f}`,
+		req.CourierID, len(records), latest.Latitude, latest.Longitude,
+	))
+
+	log.Printf("📡 [TRACKING] Courier %d: %d GPS points saved, dashboard notified",
+		req.CourierID, len(records))
+
+	JSON(c, 200, "Tracking data saved", gin.H{
+		"points_saved": len(records),
+		"courier_id":   req.CourierID,
+	})
+}
+
+// GetTrackingHistory returns GPS history for a courier or delivery.
+// GET /api/tracking/history/:courier_id
+func (h *Handler) GetTrackingHistory(c *gin.Context) {
+	courierID := c.Param("courier_id")
+	limit := 200
+
+	var tracks []models.TrackingHistory
+	h.DB.Where("courier_id = ?", courierID).
+		Order("recorded_at DESC").
+		Limit(limit).
+		Find(&tracks)
+
+	JSON(c, 200, "Tracking history retrieved", tracks)
+}
+
+// ============================================================================
+// Gemini Menu Recommender — Dapur (Kitchen) Only
+// ============================================================================
+
+// RecommendMenu uses Gemini AI to suggest menus based on available ingredients.
+// POST /api/menu/recommend
+func (h *Handler) RecommendMenu(c *gin.Context) {
+	var req models.MenuRecommendRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	result, err := h.Gemini.RecommendMenu(req.AvailableIngredients, req.StudentCount, req.Preferences)
+	if err != nil {
+		JSON(c, 500, "Menu recommendation failed: "+err.Error(), nil)
+		return
+	}
+
+	JSON(c, 200, "Menu recommendations generated", result)
+}
+
+// ============================================================================
+// Health Check
+// ============================================================================
+
+func (h *Handler) HealthCheck(c *gin.Context) {
+	sqlDB, err := h.DB.DB()
+	dbStatus := "connected"
+	if err != nil || sqlDB.Ping() != nil {
+		dbStatus = "disconnected"
+	}
+
+	osrmStatus := "unreachable"
+	if h.OSRM.IsHealthy() {
+		osrmStatus = "healthy"
+	}
+
+	geminiStatus := "configured"
+	if h.Config.GeminiAPIKey == "" {
+		geminiStatus = "not configured (using fallback)"
+	}
+
+	JSON(c, 200, "MBG Smart Logistics API is running", gin.H{
+		"version":  "3.0.0-monorepo",
+		"database": dbStatus,
+		"osrm":     osrmStatus,
+		"gemini":   geminiStatus,
+		"time":     time.Now().Format("2006-01-02 15:04:05 MST"),
+		"timezone": "Asia/Jakarta (WIB)",
+	})
+}
+
+// ============================================================================
+// JWT helper (uses middleware package)
+// ============================================================================
+
+func generateJWT(userID uint, role string, cfg *config.Config) (string, error) {
+	// Import is avoided to prevent circular dependency; inline the logic
+	claims := struct {
+		UserID uint   `json:"user_id"`
+		Role   string `json:"role"`
+		jwt.RegisteredClaims
+	}{
+		UserID: userID,
+		Role:   role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "mbg-smart-logistics",
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(cfg.JWTSecret))
+}

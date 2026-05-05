@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "MBG Smart Logistics",
+    "slug": "mbg-smart-logistics",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#030712"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "MBG Logistics memerlukan kamera untuk memindai nota belanja bahan makanan.",
+        "NSLocationWhenInUseUsageDescription": "MBG Logistics memerlukan lokasi untuk mencatat rute pengiriman.",
+        "NSLocationAlwaysUsageDescription": "MBG Logistics memerlukan akses lokasi background untuk tracking pengiriman."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#030712"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "MBG Logistics memerlukan akses lokasi untuk tracking pengiriman batch.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MBG Logistics memerlukan kamera untuk memindai nota belanja."
+        }
+      ]
+    ]
+  }
+}

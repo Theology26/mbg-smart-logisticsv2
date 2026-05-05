@@ -1,133 +1,140 @@
-# 🚀 MBG Smart Logistics — Makanan Bergizi Gratis
+# MBG Smart Logistics 🚀 (AI-Driven Meal Distribution System)
 
-**Sistem Logistik Cerdas untuk distribusi makanan bergizi di Kota Malang, Jawa Timur.**
+MBG Smart Logistics is a comprehensive, production-ready monorepo designed to optimize the distribution of ready-to-eat meals. The core objective of this system is to **prevent food spoilage** through the innovative use of AI dynamic routing, preventive inventory scanning, and rule-based expiration tracking. 
 
-MBG Smart Logistics adalah platform cerdas yang menggabungkan Laravel (Frontend/Admin), Golang (Core API), OSRM (Routing Engine), dan Gemini/Local AI (Intelligence) untuk memastikan pengiriman ransum makanan bergizi bagi anak sekolah tiba tepat waktu dengan kualitas gizi yang masih terjaga.
-
-![Arsitektur Alur Sistem](USE%20CASE%20MBG%20SMART%20LOGISTICS.png)
+Built with scalability and modern web standards in mind, the system ensures that sensitive meals (like those containing coconut milk or high moisture) reach schools well within their safe consumption windows.
 
 ---
 
-## 🌟 Fitur Utama (Arsitektur 5 Pilar)
+## ✨ Complete Features (Categorized by Role)
 
-1. **AI OCR & Stock Management**: Ubah foto nota belanja mentah menjadi data stok terstruktur otomatis.
-2. **Production Trigger & Shelf-Life AI**: Analisis daya tahan makanan secara dinamis oleh AI untuk menetapkan batas waktu pengiriman (*Maximum Delivery Window*).
-3. **AI Agent / Local Heuristics**: Otak penjadwalan cerdas yang membaca traffic memory untuk memberikan instruksi Backup Plan otomatis jika macet.
-4. **Multi-Stop Routing (CVRPTW)**: Implementasi algoritma OSRM mencari rute tercepat antar-sekolah secara *multi-stop* berdasarkan kapasitas kendaraan.
-5. **Teacher Monitoring & Dynamic ETA**: Dashboard monitoring untuk di mana setiap "Selesai Drop-Off" di sekolah A, akan langsung otomatis mengkalkulasi ulang sisa waktu (ETA) untuk Sekolah B, C, dst-nya.
+The system enforces strict role-based access control (RBAC) to ensure security and efficiency across different operational domains:
 
----
-
-## 🗄️ Penjelasan Database & Tabel Lengkap
-
-![ERD PostgreSQL PostgreSQL 16](ERD%20MBG%20SMART%20LOGISTICS.png)
-![Class Diagram MBG Backend](CLASS%20DIAGRAM%20MBG%20SMART%20LOGISTICS.png)
-
-Database menggunakan **PostgreSQL 16**.
-1. **users**: Entitas kredensial (Role: Admin, Kurir, Guru).
-2. **kitchens**: Data basecamp titik awal.
-3. **schools**: Titik tujuan pengiriman yang wajib dicapai sebelum `delivery_window` habis.
-4. **couriers**: Master agent dengan atribut batas bawa porsi (`max_capacity_portions`).
-5. **inventory**: Tabel rekap stok bahan mentah di dapur.
-6. **inventory_transactions**: Histori masuk/keluar barang (OCR tersimpan di tabel ini pada atribut *notes*).
-7. **production_logs**: Titik awal bergeraknya sistem! Menyimpan *dish_name* (nama resep) serta **batas kedaluwarsa** (_shelf_life_minutes_) yang akan dijaga ketat oleh sistem OSRM.
-8. **school_assignments**: Penugasan porsi makanan untuk masing-masing porsi sekolah.
-9. **route_plans**: Bundel jadwal OSRM per kurir. 1 Kurir = 1 *route_plan*.
-10. **route_stops**: Rantai urutan sekolah yang dilalui dalam 1 route plan (Terdapat *dynamic_eta*).
-11. **delivery_tracking**: Sinkronisasi GPS live dari HP Kurir.
-12. **traffic_history**: Catatan kecerdasan AI terkait status kepadatan wilayah.
+*   **🛡️ Admin**: System monitoring and full operational control. Admins have CRUD access to all system data, can oversee the live delivery map, and manage system users.
+*   **👨‍🏫 Guru (Teacher)**: Read-only live map tracking for delivery ETA. Teachers can monitor when meals will arrive at their specific schools without risking accidental data modification.
+*   **🧑‍🍳 Dapur (Kitchen)**: 
+    *   **Smart Inventory**: Receipt scanning via a local, GPU-accelerated **PaddleOCR** microservice to quickly log ingredients.
+    *   **AI Chef Assistant**: Menu recommendations powered by the **Gemini API**, suggesting optimal recipes based on available stock, student count, and dietary preferences.
+*   **🚚 Kurir (Courier)**: 
+    *   **AI Routing**: Receives AI-optimized delivery sequencing powered by a PyTorch A2C (Advantage Actor-Critic) model to ensure the fastest, safest delivery routes.
+    *   **Batch Tracking**: Utilizes resource-friendly, "Batch Cache & Sync" GPS tracking. GPS coordinates are cached locally every 10 seconds and flushed to the server every 3 minutes, preserving courier battery life and cellular data.
 
 ---
 
-## 🔄 Alur Sistem (Sequence Diagram)
+## 🏗️ Architecture & Tech Stack
 
-Berikut adalah urutan alur kerja (*sequence diagram*) untuk fitur-fitur utama di MBG Smart Logistics:
+This project is structured as a modern Monorepo utilizing specialized technologies for each layer:
 
-1. **Alur Dapur - Scan Nota Belanja (AI OCR)**
-![Sequence Diagram Dapur Scan Nota](SEQUENCE%20DIAGRAM%20DAPUR%20SCAN%20NOTA.png)
-
-2. **Alur Dapur - Produksi & Prediksi Ketahanan Makanan (AI Shelf-Life)**
-![Sequence Diagram Dapur Pilih Menu](SEQUENCE%20DIAGRAM%20DAPUR%20PILIH%20MENU.png)
-
-3. **Alur Kurir - Pengiriman & OSRM Routing**
-![Sequence Diagram Kurir](SEQUENCE%20DIAGRAM%20KURIR.png)
+*   **Frontend Web (Admin/Guru Dashboard)**: Laravel 11, Vue.js 3, Inertia.js, Tailwind CSS. Features dynamic mapping with Leaflet.js.
+*   **Mobile App (Courier/Kitchen)**: React Native with Expo. Implements background location tracking and camera integration.
+*   **Core Backend (REST API & WebSockets)**: Golang (Gin Gonic) and GORM. Handles the primary business logic, rule-based expiration calculations, and WebSocket broadcasts.
+*   **AI Microservice**: Python (FastAPI). Hosts the PaddleOCR engine and PyTorch A2C models.
+*   **Database**: MySQL 8.0 (7-table optimized schema).
+*   **Routing Engine**: OSRM (Open Source Routing Machine) hosted locally for high-performance route and matrix calculations (East Java/Malang region).
 
 ---
 
-## 📡 Dokumentasi Full REST API (Postman / cURL Ready)
-Golang Backend Server: `http://localhost:8080/api`
+## ⚙️ Prerequisites
 
-### 1. Authentikasi (`/auth`)
-* `POST /auth/login`  
-  *Payload:* `{"email": "admin@mbg.com", "password": "password"}`
-* `POST /auth/register`  
-  *Payload:* `{"name": "Budi", "email": "kurir@mbg.com", "password": "password", "role": "courier"}`
+To run this system locally, ensure you have the following installed:
 
-  ![Bukti API Register Berhasil](http___localhost_8080_api_auth_register%20-%20mbg_smart_logistics%2022_04_2026%2001_12_45.png)
-
-### 2. OCR & Manajemen Stok Dapur (`/ocr`, `/inventory`, `/kitchens`)
-* **`POST /ocr/scan-receipt`**  *(Uji Coba AI Vision!)*
-  * Tipe Body: `multipart/form-data`
-  * Key: `receipt_image` (Upload File Nota .png/.jpg). Fitur Mock-up akan jalan bila API limit!
-* **`POST /ocr/confirm`**
-  * *Payload:* Hasil JSON kembalian scan-receipt dikirm kemari untuk meng-insert ke Database.
-* **`GET /inventory/{kitchen_id}`**
-  * Tarik seluruh laporan sisa barang di dapur.
-* **`GET /kitchens`** | **`POST /kitchens`**
-
-### 3. Produksi Pangan (`/production`)
-* **`GET /production/active`**  
-  * Menampilkan data produksi hari ini yang statusnya 'cooking', 'ready', atau 'dispatched'.
-* **`POST /production/start`** *(Uji Coba Analisis Masa Tahan AI!)*
-  * *Payload (Raw JSON):*
-  ```json
-  {
-      "kitchen_id": "uuid-dari-tabel-kitchen",
-      "dish_name": "Sayur Lodeh Daging Sapi",
-      "total_portions": 50,
-      "cooked_at": "2026-04-22T08:00:00Z",
-      "assignments": [
-          {"school_id": "uuid-dari-tabel-school", "allocated_portions": 25}
-      ]
-  }
-  ```
-  *Output:* AI akan mengembalikan `shelf_life_minutes` untuk masakan tersebut berdasarkan komposisi kaldu/sayurannya.
-
-  ![Bukti API Produksi AI Berhasil](http___localhost_8080_api_production_start%20-%20mbg_smart_logistics%2022_04_2026%2001_19_23.png)
-
-### 4. Rute, Kurir & Traffic (`/routing`, `/couriers`, `/traffic`, `/schools`)
-* **`GET /schools`** | **`POST /schools`** | **`PUT /schools/:id`** | **`DELETE /schools/:id`**
-* **`GET /couriers`** | **`POST /couriers`**
-* **`GET /traffic/stats`** *(Lihat Memory Traffic AI)*
-* **`POST /routing/plan`** *(Uji Coba Otak OSRM!)*
-  * *Payload:* `{"production_id": "uuid"}` 
-  * Server Go akan mencarikan kurir nganggur, dan melukis peta ke Schools.
-* **`PUT /routing/stops/{route_stop_id}/complete`**  
-  * *Payload:* `{"notes": "Diterima kepala sekolah"}`
-  * Endpoint aksi pencet "Selesai" oleh Kurir, akan memicu pembaruan jadwal sekolah setelahnya.
-
-### 5. Tracking & ETA Realtime (`/monitoring`, `/agent`)
-* **`POST /monitoring/location`**
-  * *Payload:* `{"route_plan_id": "uuid", "lat": -7.95, "lng": 112.63}`
-* **`GET /monitoring/track/{route_plan_id}`**  
-  * Mengembalikan array polyline OSRM untuk digambar di peta.
-* **`GET /monitoring/eta/{school_id}`**  
-  * Endpoint polling (5 detik) untuk Guru melihat kapan masakan datang siang ini.
-* **`POST /agent/analyze-schedule`**  
-  * Mengecek jadwal kurir sebelum berangkat untuk *Backup Plan* (Sistem Agent Cerdas di Go).
+*   **Docker & Docker Compose**: Essential for orchestrating the database, Go backend, OSRM, and AI microservices.
+*   **Go (Golang) 1.21+**: Required if running the backend outside of Docker.
+*   **Node.js (v20+) & npm/Yarn**: Required for building the Laravel/Vue frontend and Expo mobile app.
+*   **PHP 8.2+ & Composer**: Required for the Laravel frontend ecosystem.
+*   **Hardware (Crucial for AI)**: An **NVIDIA GPU (RTX 50-series recommended)** with CUDA support. The Docker setup requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) to enable GPU passthrough for PaddleOCR and PyTorch.
 
 ---
 
-## 🛠️ Panduan Eksekusi Setup
-```powershell
-# 1. Hidupkan Database + Engine OSRM
-podman compose up -d
+## 🛠️ Cara Menjalankan (Step-by-Step Guide)
 
-# 2. Hidupkan Core API Logic (Golang)
-cd go-api
-go run main.go
+Ikuti langkah-langkah di bawah ini untuk menjalankan keseluruhan sistem di lingkungan *local* (Windows/Laragon):
 
-# 3. Hidupkan Admin Panel UI (Laravel)
-cd laravel-core
+### 1. Menjalankan Database (Laragon) & AI Services
+Sistem ini menggunakan MySQL bawaan Laragon agar lebih ringan di host Windows Anda. Namun, AI Services & OSRM tetap berjalan menggunakan Docker.
+1. Buka **Laragon** dan klik **Start All** (Pastikan MySQL berjalan di port 3306).
+2. Buat database kosong bernama `mbg_smart_logistics` (opsional, jika belum dibuat).
+3. Jalankan container pendukung (AI dan OSRM):
+```bash
+# Buka terminal di root project
+docker-compose up -d --build
+```
+
+### 2. Menjalankan Backend API (Golang) & Seeder
+Backend Golang akan secara otomatis melakukan *auto-migration* tabel saat pertama kali dijalankan.
+1. Konfigurasi `.env`: Pastikan file `backend-golang/.env` menggunakan `DB_HOST=127.0.0.1`, `DB_USER=root`, dan `DB_PASSWORD=` (kosong).
+2. Jalankan Golang Backend API:
+```bash
+cd backend-golang
+go run ./cmd/server/main.go
+```
+3. *(Opsional)* Jika ini pertama kali dijalankan dan tabel masih kosong, jalankan Seeder untuk mengisi data dummy (Buka terminal baru):
+```bash
+cd backend-golang
+go run ./cmd/seeder/main.go
+```
+
+### 3. Menjalankan Web Dashboard (Laravel + Vue 3)
+Frontend Web menggunakan Laravel 11 dan Inertia.js (Vue 3). Pastikan file `frontend-web/.env` sudah diset ke `DB_CONNECTION=mysql` dan `DB_DATABASE=mbg_smart_logistics`.
+Buka 2 terminal baru di dalam folder `frontend-web`:
+
+**Terminal 1 (PHP Server):**
+```bash
+cd frontend-web
 php artisan serve
 ```
+**Terminal 2 (Vite Server):**
+```bash
+cd frontend-web
+npm run dev
+```
+Buka browser di: `http://localhost:8000` (Gunakan email: `admin@mbg.com`, password: `password`).
+
+### 4. Menjalankan Mobile App (React Native Expo)
+Aplikasi Kurir dan Dapur menggunakan Expo. Pastikan HP dan Laptop terhubung di **satu jaringan WiFi yang sama**.
+```bash
+cd mobile-app
+npm run start
+```
+Scan QR Code menggunakan aplikasi **Expo Go** di HP Android/iOS Anda.
+(Gunakan email kurir: `kurir@mbg.com` atau dapur: `dapur@mbg.com`, password: `password`).
+
+---
+
+### 🔌 Port Reference (Arsitektur Jaringan)
+
+| Service | Technology | Port Internal/Local | Akses |
+| :--- | :--- | :--- | :--- |
+| **Database** | Laragon MySQL | `3306` | `127.0.0.1:3306` |
+| **Core API** | Golang (Gin) | `8080` | `http://127.0.0.1:8080` |
+| **AI Services** | Python (FastAPI)| `9000` | `http://localhost:9000` (Docker) |
+| **Routing** | OSRM Backend | `5000` | `http://localhost:5000` (Docker) |
+| **Web Dashboard**| Laravel/Vue 3 | `8000` & `5173`| `http://localhost:8000` |
+| **Mobile App** | Expo / Metro | `8081` | *Via Expo Go App* |
+
+---
+
+### 4. Troubleshooting (Masalah Umum)
+
+#### 📱 Mobile App: Gagal Terhubung ke Server
+Jika muncul pesan "Error Koneksi" saat login di HP:
+1. **Cek IP Laptop:** Buka terminal, ketik `ipconfig`. Cari `IPv4 Address` di bagian Wi-Fi.
+2. **Update Config:** Buka `mobile-app/constants/config.js` dan pastikan `BACKEND_URL` menggunakan IP tersebut (contoh: `http://192.168.18.38:8080`).
+3. **Satu Jaringan:** Pastikan HP dan Laptop terhubung ke **WiFi yang sama**.
+4. **Firewall:** Matikan sementara Firewall Windows atau izinkan port 8080.
+
+#### ❌ Mobile App: Crash "String cannot be cast to Boolean"
+Jika muncul layar merah dengan error tersebut:
+1. Ini biasanya karena versi `react-native-screens` tidak cocok.
+2. Jalankan perintah berikut di folder `mobile-app`:
+   ```bash
+   npx expo install react-native-screens react-native-safe-area-context
+   ```
+3. Restart Expo server dengan `npm run start`.
+
+#### 🌐 Web Dashboard: View [app] not found
+1. Pastikan file `resources/views/app.blade.php` sudah ada.
+2. Pastikan Anda sudah menjalankan `npm run dev` di folder `frontend-web`.
+
+---
+*Developed for advanced logistics optimization and AI integration coursework.*

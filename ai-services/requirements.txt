@@ -1,0 +1,28 @@
+# ============================================================================
+# MBG Smart Logistics — AI Service Dependencies
+# ============================================================================
+# Target: NVIDIA RTX 5050 (8GB VRAM) / CUDA 12.x
+# ============================================================================
+
+# --- Web Framework ---
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+python-multipart==0.0.20
+
+# --- PaddleOCR (GPU-Accelerated) ---
+# paddlepaddle-gpu MUST be installed BEFORE paddleocr.
+# For CUDA 12.x (RTX 5050):
+#   pip install paddlepaddle-gpu==3.1.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
+paddlepaddle-gpu==3.1.0
+paddleocr==2.10.0
+
+# --- PyTorch (CUDA) ---
+# For CUDA 12.x:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+torch>=2.6.0
+
+# --- Utilities ---
+numpy>=1.26.0
+Pillow>=10.4.0
+httpx>=0.28.0
+pydantic>=2.11.0

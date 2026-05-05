@@ -1,36 +1,48 @@
 # ============================================================================
-# MBG Smart Logistics — Docker Compose (Local Development)
+# MBG Smart Logistics — Docker Compose (Monorepo Orchestration)
 # ============================================================================
+# Services:
+#   1. mysql        — MySQL 8.0 (primary database)
+#   2. backend      — Golang API (Gin + GORM + WebSocket)
+#   3. osrm         — OSRM Backend (East Java / Malang routing engine)
+#   4. ai-services  — Python FastAPI (PaddleOCR + PyTorch A2C) [NVIDIA GPU]
+#
+# Target Hardware: Acer Nitro V15, RTX 5050 (8GB VRAM), 16GB RAM
+#
 # Usage:
-#   1. First time: Run scripts/setup_osrm.ps1 to download & prepare map data
-#   2. Start:      podman compose up -d
-#   3. Stop:       podman compose down
-#   4. Reset DB:   podman compose down -v && podman compose up -d
+#   First time:  Run scripts/setup_osrm.ps1 to download & prepare map data
+#   Start:       docker compose up -d
+#   Stop:        docker compose down
+#   Reset DB:    docker compose down -v && docker compose up -d
+#   GPU check:   docker compose run --rm ai-services python3 -c "import torch; print(torch.cuda.is_available())"
 # ============================================================================
 
 services:
   # ──────────────────────────────────────────────────────────────────────
-  # PostgreSQL 16 — Primary Database
+  # Golang Backend API — Core REST + WebSocket
   # ──────────────────────────────────────────────────────────────────────
-  postgres:
-    image: postgres:16-alpine
-    container_name: mbg_postgres
+  backend:
+    build:
+      context: ./backend-golang
+      dockerfile: Dockerfile
+    container_name: mbg_backend
     environment:
-      POSTGRES_DB: mbg_smart_logistics
-      POSTGRES_USER: mbg_admin
-      POSTGRES_PASSWORD: mbg_secure_2026
-      TZ: Asia/Jakarta
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: mbg_admin
+      DB_PASSWORD: mbg_secure_2026
+      DB_NAME: mbg_smart_logistics
+      OSRM_BASE_URL: http://osrm:5000
+      AI_SERVICE_URL: http://ai-services:9000
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      SERVER_PORT: "8080"
+      JWT_SECRET: ${JWT_SECRET:-mbg-smart-logistics-jwt-secret-change-in-production}
+      SHELF_LIFE_BUFFER_MINUTES: "30"
+      DEFAULT_SERVICE_TIME_SECONDS: "300"
+      MAX_IMPROVEMENT_ITERATIONS: "1000"
     ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      # Auto-run migration on first startup
-      - ./go-api/migrations:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mbg_admin -d mbg_smart_logistics"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - "8080:8080"
     restart: unless-stopped
 
   # ──────────────────────────────────────────────────────────────────────
@@ -52,31 +64,40 @@ services:
         --max-table-size 200
         --port 5000
         /data/east-java-latest.osrm
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
 
   # ──────────────────────────────────────────────────────────────────────
-  # Redis 7 — Cache & Pub/Sub for Real-time Tracking
+  # AI Microservice — PaddleOCR + PyTorch A2C (NVIDIA GPU)
   # ──────────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: mbg_redis
+  # CRITICAL: This service requires the NVIDIA Container Toolkit
+  # installed on the host machine for GPU passthrough.
+  #
+  # Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/
+  # Verify:  docker run --rm --gpus all nvidia/cuda:12.6.3-base-ubuntu22.04 nvidia-smi
+  # ──────────────────────────────────────────────────────────────────────
+  ai-services:
+    build:
+      context: ./ai-services
+      dockerfile: Dockerfile
+    container_name: mbg_ai
     ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+      - "9000:9000"
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      CUDA_VISIBLE_DEVICES: "0"
+    # ── CRITICAL: NVIDIA GPU Passthrough ──
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      test: ["CMD", "python3", "-c", "import httpx; r = httpx.get('http://localhost:9000/health'); assert r.status_code == 200"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
     restart: unless-stopped
 
-volumes:
-  postgres_data:
-    name: mbg_postgres_data
-  redis_data:
-    name: mbg_redis_data
