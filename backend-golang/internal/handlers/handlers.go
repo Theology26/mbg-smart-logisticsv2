@@ -24,21 +24,23 @@ import (
 
 // Handler holds shared dependencies for all HTTP handlers.
 type Handler struct {
-	DB     *gorm.DB
-	Config *config.Config
-	Gemini *gemini.Client
-	OSRM   *osrm.Client
-	WSHub  *ws.Hub
+	DB       *gorm.DB // MySQL (Core System)
+	CustomDB *gorm.DB // SQLite (Customized Settings)
+	Config   *config.Config
+	Gemini   *gemini.Client
+	OSRM     *osrm.Client
+	WSHub    *ws.Hub
 }
 
 // NewHandler creates a new Handler with all dependencies injected.
-func NewHandler(db *gorm.DB, cfg *config.Config, osrmClient *osrm.Client, hub *ws.Hub) *Handler {
+func NewHandler(dbCore *gorm.DB, dbCustom *gorm.DB, cfg *config.Config, osrmClient *osrm.Client, hub *ws.Hub) *Handler {
 	return &Handler{
-		DB:     db,
-		Config: cfg,
-		Gemini: gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel),
-		OSRM:   osrmClient,
-		WSHub:  hub,
+		DB:       dbCore,
+		CustomDB: dbCustom,
+		Config:   cfg,
+		Gemini:   gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel),
+		OSRM:     osrmClient,
+		WSHub:    hub,
 	}
 }
 
@@ -318,6 +320,41 @@ func (h *Handler) UpdateDeliveryStatus(c *gin.Context) {
 	JSON(c, 200, "Delivery status updated", delivery)
 }
 
+func (h *Handler) AssignCourier(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		CourierID uint `json:"courier_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	var delivery models.Delivery
+	if err := h.DB.First(&delivery, id).Error; err != nil {
+		JSON(c, 404, "Delivery not found", nil)
+		return
+	}
+
+	// Verify courier exists and is a courier
+	var courier models.User
+	if err := h.DB.First(&courier, req.CourierID).Error; err != nil || courier.Role != "kurir" {
+		JSON(c, 400, "Invalid courier ID", nil)
+		return
+	}
+
+	h.DB.Model(&delivery).Update("courier_id", req.CourierID)
+	JSON(c, 200, "Courier assigned to delivery", delivery)
+}
+
+// GetCouriers returns a list of all users with the 'kurir' role.
+// GET /api/couriers
+func (h *Handler) GetCouriers(c *gin.Context) {
+	var couriers []models.User
+	h.DB.Where("role = ?", "kurir").Order("name ASC").Find(&couriers)
+	JSON(c, 200, "Couriers retrieved", couriers)
+}
+
 // ============================================================================
 // Batch Tracking — POST /api/tracking/batch
 // ============================================================================
@@ -410,6 +447,39 @@ func (h *Handler) RecommendMenu(c *gin.Context) {
 	}
 
 	JSON(c, 200, "Menu recommendations generated", result)
+}
+
+// ============================================================================
+// OSRM Routing Geometry — Kurir (Courier) Map Polyline
+// ============================================================================
+
+// GetRoutingGeometry returns the encoded polyline geometry from OSRM.
+// POST /api/routing/geometry
+func (h *Handler) GetRoutingGeometry(c *gin.Context) {
+	var req struct {
+		Points []osrm.Coordinate `json:"points" binding:"required,min=2"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	route, err := h.OSRM.GetRoute(req.Points)
+	if err != nil {
+		JSON(c, 500, "OSRM routing failed: "+err.Error(), nil)
+		return
+	}
+
+	if len(route.Routes) == 0 {
+		JSON(c, 404, "No route found", nil)
+		return
+	}
+
+	JSON(c, 200, "Route geometry retrieved", gin.H{
+		"geometry": route.Routes[0].Geometry,
+		"distance": route.Routes[0].Distance,
+		"duration": route.Routes[0].Duration,
+	})
 }
 
 // ============================================================================

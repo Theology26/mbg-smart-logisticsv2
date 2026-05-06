@@ -165,24 +165,81 @@ export default function TrackingScreen() {
     await uploadBatch(points)
   }
 
+  function decodePolyline(encoded) {
+    let points = [];
+    let index = 0, len = encoded.length;
+    let lat = 0, lng = 0;
+    while (index < len) {
+      let b, shift = 0, result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+      points.push({ latitude: (lat / 1E5), longitude: (lng / 1E5) });
+    }
+    return points;
+  }
+
   async function optimizeRoute() {
     setRouteLoading(true)
     try {
-      addLog('🧠 Menghitung rute tercepat (AI)...')
+      addLog('🧠 Menghitung urutan sekolah (AI)...')
+      
+      const schools = [
+        { id: 1, name: 'SDN 1 Malang', latitude: -7.98, longitude: 112.62, demand: 10 }
+      ]
+      
       const res = await fetch(`${API_CONFIG.AI_SERVICE_URL}/routing/optimize/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           depot_lat: -7.9666,
           depot_lng: 112.6326,
-          schools: [
-            { id: 1, name: 'SDN 1 Malang', latitude: -7.98, longitude: 112.62, demand: 10 }
-          ]
+          schools: schools
         })
       })
       const data = await res.json()
       setRouteSequence(data.route || [])
-      addLog('✅ Rute dioptimasi!')
+
+      addLog('🗺️ Mengambil jalur jalanan (OSRM)...')
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
+      
+      const coords = [{ lat: -7.9666, lng: 112.6326 }]
+      data.route?.forEach(step => {
+        const s = schools.find(sc => sc.id === step.school_id)
+        if(s) coords.push({ lat: s.latitude, lng: s.longitude })
+      })
+
+      const geoRes = await fetch(`${API_CONFIG.BACKEND_URL}/api/routing/geometry/`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({ points: coords })
+      })
+      
+      if(geoRes.ok) {
+        const geoData = await geoRes.json()
+        const points = decodePolyline(geoData.data.geometry)
+        setRouteGeometry(points)
+        addLog('✅ Rute Google Maps berhasil dimuat!')
+      } else {
+        addLog('⚠️ Gagal memuat bentuk jalanan.')
+      }
+
     } catch (err) { addLog(`❌ AI Error: ${err.message}`) }
     finally { setRouteLoading(false) }
   }
@@ -217,12 +274,22 @@ export default function TrackingScreen() {
               pinColor="#3b82f6"
             />
           )}
-          {/* Mock Route Line */}
-          {routeSequence.length > 0 && (
+          {/* Mock Route Line (Fallback) */}
+          {routeGeometry.length === 0 && routeSequence.length > 0 && (
             <Polyline
               coordinates={routeSequence.map(r => ({ latitude: r.latitude, longitude: r.longitude }))}
-              strokeColor="#4ade80"
-              strokeWidth={4}
+              strokeColor="#f59e0b"
+              strokeWidth={3}
+              lineDashPattern={[5, 5]}
+            />
+          )}
+
+          {/* Actual Google Maps Style Route */}
+          {routeGeometry.length > 0 && (
+            <Polyline
+              coordinates={routeGeometry}
+              strokeColor="#3b82f6"
+              strokeWidth={5}
             />
           )}
         </MapView>

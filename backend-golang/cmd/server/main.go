@@ -28,8 +28,11 @@ func main() {
 	// Load configuration from .env
 	cfg := config.Load()
 
-	// Connect to MySQL + auto-migrate 7 tables
-	db := database.Connect(cfg)
+	// Connect to MySQL (Core System)
+	dbCore := database.Connect(cfg)
+
+	// Connect to SQLite (Customized Settings)
+	dbCustom := database.ConnectSQLite()
 
 	// Initialize OSRM client for routing
 	osrmClient := osrm.NewClient(cfg.OSRMBaseURL)
@@ -39,7 +42,7 @@ func main() {
 	go hub.Run()
 
 	// Setup Gin router with all routes, middleware, and services
-	r := router.Setup(db, cfg, osrmClient, hub)
+	r := router.Setup(dbCore, dbCustom, cfg, osrmClient, hub)
 
 	port := cfg.ServerPort
 	if port == "" {

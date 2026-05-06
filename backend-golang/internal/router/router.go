@@ -24,14 +24,14 @@ import (
 // ============================================================================
 
 // Setup creates and configures the Gin router with all routes.
-func Setup(db *gorm.DB, cfg *config.Config, osrmClient *osrm.Client, hub *ws.Hub) *gin.Engine {
+func Setup(dbCore *gorm.DB, dbCustom *gorm.DB, cfg *config.Config, osrmClient *osrm.Client, hub *ws.Hub) *gin.Engine {
 	r := gin.Default()
 
 	// Global middleware
 	r.Use(middleware.CORS())
 
 	// Initialize handler with all dependencies
-	h := handlers.NewHandler(db, cfg, osrmClient, hub)
+	h := handlers.NewHandler(dbCore, dbCustom, cfg, osrmClient, hub)
 
 	// ── WebSocket — Lightweight dashboard refresh ────────────────
 	r.GET("/ws/tracking", func(c *gin.Context) {
@@ -93,12 +93,16 @@ func Setup(db *gorm.DB, cfg *config.Config, osrmClient *osrm.Client, hub *ws.Hub
 	protected.POST("/expiration/calculate",
 		middleware.RoleRequired("admin", "dapur", "kurir"), h.CalculateExpiration)
 
+	// ── Couriers (admin only) ────────────────────────────────────
+	protected.GET("/couriers", middleware.RoleRequired("admin"), h.GetCouriers)
+
 	// ── Deliveries (admin + kurir) ───────────────────────────────
 	deliveries := protected.Group("/deliveries")
 	{
 		deliveries.GET("/", h.GetDeliveries)                                              // all roles
 		deliveries.POST("/", middleware.RoleRequired("admin"), h.CreateDelivery)           // admin only
 		deliveries.PUT("/:id/status", middleware.RoleRequired("admin", "kurir"), h.UpdateDeliveryStatus)
+		deliveries.PUT("/:id/assign", middleware.RoleRequired("admin"), h.AssignCourier)   // admin only
 	}
 
 	// ── Batch Tracking — Kurir only ──────────────────────────────
@@ -107,6 +111,12 @@ func Setup(db *gorm.DB, cfg *config.Config, osrmClient *osrm.Client, hub *ws.Hub
 	{
 		tracking.POST("/batch", middleware.RoleRequired("kurir"), h.BatchTracking)
 		tracking.GET("/history/:courier_id", h.GetTrackingHistory) // admin + guru can view
+	}
+
+	// ── Routing Geometry — Kurir only ────────────────────────────
+	routing := protected.Group("/routing")
+	{
+		routing.POST("/geometry", middleware.RoleRequired("kurir", "admin"), h.GetRoutingGeometry)
 	}
 
 	// ── Fallback 404 ─────────────────────────────────────────────
