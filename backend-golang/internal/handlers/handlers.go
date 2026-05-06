@@ -610,6 +610,34 @@ func (h *Handler) UpdateIndustryConfig(c *gin.Context) {
 	JSON(c, 200, "System configuration updated", req)
 }
 
+// GetCustomLabels returns all custom UI labels
+// GET /api/customized/labels
+func (h *Handler) GetCustomLabels(c *gin.Context) {
+	var labels []models.CustomLabel
+	h.CustomDB.Find(&labels)
+	JSON(c, 200, "Custom labels retrieved", labels)
+}
+
+// UpdateCustomLabel updates or creates a custom UI label
+// PUT /api/customized/labels
+func (h *Handler) UpdateCustomLabel(c *gin.Context) {
+	var req models.CustomLabel
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request", nil)
+		return
+	}
+	
+	if req.LabelKey == "" {
+		JSON(c, 400, "Label Key is required", nil)
+		return
+	}
+
+	h.CustomDB.Where("label_key = ?", req.LabelKey).FirstOrCreate(&req)
+	h.CustomDB.Model(&models.CustomLabel{}).Where("label_key = ?", req.LabelKey).Update("label_value", req.LabelValue)
+	
+	JSON(c, 200, "Label updated", req)
+}
+
 // ============================================================================
 // Health Check
 // ============================================================================

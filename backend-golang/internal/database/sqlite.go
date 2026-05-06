@@ -42,6 +42,7 @@ func autoMigrateSQLite(db *gorm.DB) {
 		&models.CustomMenu{},
 		&models.SystemRule{},
 		&models.IndustryConfig{},
+		&models.CustomLabel{},
 	)
 	if err != nil {
 		log.Fatalf("❌ SQLite auto-migration failed: %v", err)
@@ -93,5 +94,15 @@ func seedSQLite(db *gorm.DB) {
 			WeightUnit:       "kg",
 		})
 		log.Println("🌱 Seeded default Detailed Industry Configuration")
+	}
+
+	// Seed Custom Labels
+	var labelCount int64
+	db.Model(&models.CustomLabel{}).Count(&labelCount)
+	if labelCount == 0 {
+		db.Create(&models.CustomLabel{LabelKey: "Dest_Label", LabelValue: "Sekolah", Category: "General"})
+		db.Create(&models.CustomLabel{LabelKey: "Item_Label", LabelValue: "Menu", Category: "General"})
+		db.Create(&models.CustomLabel{LabelKey: "Delivery_Label", LabelValue: "Pengiriman", Category: "General"})
+		log.Println("🌱 Seeded default Custom Labels")
 	}
 }

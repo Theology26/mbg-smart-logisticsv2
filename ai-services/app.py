@@ -234,7 +234,7 @@ async def scan_receipt(file: UploadFile = File(...)):
                 f"{image_np.shape[1]}x{image_np.shape[0]})")
 
     # Run PaddleOCR
-    result = ocr_engine.ocr(image_np, cls=True)
+    result = ocr_engine.ocr(image_np)
 
     # Parse results
     raw_texts = []

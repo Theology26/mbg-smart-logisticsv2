@@ -79,29 +79,37 @@
 
             <!-- SECTION: LABELING & UI -->
             <div v-if="activeSection === 'labels'" class="bg-gray-900 border border-gray-800 rounded-3xl overflow-hidden">
-                <div class="p-6 border-b border-gray-800 bg-gray-800/20">
+                <div class="p-6 border-b border-gray-800 bg-gray-800/20 flex items-center justify-between">
                     <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                        <span>🏷️</span> Sistem Pelabelan Dinamis
+                        <span>🏷️</span> Sistem Pelabelan Dinamis & Custom
                     </h3>
+                    <button @click="addNewLabel" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-all">
+                        + Tambah Label Baru
+                    </button>
                 </div>
-                <div class="p-8 space-y-8">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <div class="p-6 bg-gray-950 border border-gray-800 rounded-2xl space-y-4">
-                            <div class="flex items-center gap-3">
-                                <span class="p-2 bg-blue-500/10 text-blue-400 rounded-lg">📍</span>
-                                <label class="text-sm font-bold text-white">Label Titik Tujuan</label>
+                <div class="p-8 space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div v-for="(label, index) in customLabels" :key="index" 
+                             class="p-6 bg-gray-950 border border-gray-800 rounded-2xl space-y-3 group relative">
+                            
+                            <button @click="removeLabel(index)" class="absolute -top-2 -right-2 w-6 h-6 bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all text-[10px]">✕</button>
+
+                            <div class="space-y-1">
+                                <label class="text-[10px] font-bold text-gray-600 uppercase">Key (ID Label)</label>
+                                <input v-model="label.label_key" type="text" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs font-mono" placeholder="Misal: Sidebar_Title" />
                             </div>
-                            <input v-model="config.destination_label" type="text" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white" />
-                            <p class="text-[10px] text-gray-500 italic">Contoh: Sekolah, Customer, Rumah Sakit, Gudang.</p>
-                        </div>
-                        <div class="p-6 bg-gray-950 border border-gray-800 rounded-2xl space-y-4">
-                            <div class="flex items-center gap-3">
-                                <span class="p-2 bg-orange-500/10 text-orange-400 rounded-lg">📦</span>
-                                <label class="text-sm font-bold text-white">Label Nama Barang</label>
+                            <div class="space-y-1">
+                                <label class="text-[10px] font-bold text-gray-600 uppercase">Value (Teks Tampilan)</label>
+                                <input v-model="label.label_value" type="text" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm" placeholder="Misal: Dashboard Utama" />
                             </div>
-                            <input v-model="config.item_label" type="text" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white" />
-                            <p class="text-[10px] text-gray-500 italic">Contoh: Menu, Paket, Sparepart, Tanaman.</p>
                         </div>
+                    </div>
+
+                    <!-- Bottom Add Button -->
+                    <div class="pt-4 flex justify-center">
+                        <button @click="addNewLabel" class="flex items-center gap-2 px-6 py-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-full text-sm border border-gray-700 transition-all">
+                            <span>➕</span> Tambah Input Label Lainnya
+                        </button>
                     </div>
                 </div>
             </div>
@@ -204,17 +212,20 @@ const sections = [
 
 const config = ref({})
 const rules = ref([])
+const customLabels = ref([])
 const loading = ref(true)
 const saving = ref(false)
 
 onMounted(async () => {
     try {
-        const [resConfig, resRules] = await Promise.all([
+        const [resConfig, resRules, resLabels] = await Promise.all([
             axios.get('/api/customized/config'),
-            axios.get('/api/customized/rules')
+            axios.get('/api/customized/rules'),
+            axios.get('/api/customized/labels')
         ])
         config.value = resConfig.data.data
         rules.value = resRules.data.data
+        customLabels.value = resLabels.data.data
     } catch (err) {
         console.error(err)
     } finally {
@@ -237,15 +248,38 @@ function removeRule(index) {
     }
 }
 
+function addNewLabel() {
+    customLabels.value.push({
+        label_key: '',
+        label_value: '',
+        category: 'General'
+    })
+}
+
+function removeLabel(index) {
+    if (confirm('Hapus label ini?')) {
+        customLabels.value.splice(index, 1)
+    }
+}
+
 async function saveAll() {
     saving.value = true
     try {
         // Update Config
         await axios.put('/api/customized/config', config.value)
         
-        // Save Rules (Simplified: we use a temporary loop or you could add a backend batch endpoint)
-        // For production, a single batch endpoint is better. 
-        // For now, I'll update the config and refresh.
+        // Save Rules (Iterate existing ones)
+        for (const rule of rules.value) {
+            if (rule.id) {
+                await axios.put(`/api/customized/rules/${rule.id}`, rule)
+            }
+        }
+
+        // Save Labels
+        for (const label of customLabels.value) {
+            await axios.put('/api/customized/labels', label)
+        }
+
         alert('Master Konfigurasi Global Berhasil Disimpan!')
         window.location.reload()
     } catch (err) {

@@ -99,3 +99,15 @@ type IndustryConfig struct {
 }
 
 func (IndustryConfig) TableName() string { return "industry_config" }
+
+// CustomLabel allows for an unlimited number of dynamic UI labels.
+// Example: "Sidebar_Delivery" -> "Pengiriman Barang", "Button_Add" -> "Tambah Pesanan"
+type CustomLabel struct {
+	ID         uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	LabelKey   string    `json:"label_key" gorm:"type:varchar(100);uniqueIndex;not null"`
+	LabelValue string    `json:"label_value" gorm:"type:varchar(255);not null"`
+	Category   string    `json:"category" gorm:"type:varchar(50);default:'General'"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+func (CustomLabel) TableName() string { return "custom_labels" }
