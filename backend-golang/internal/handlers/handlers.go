@@ -77,7 +77,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := generateJWT(user.ID, user.Role, h.Config)
+	token, err := generateJWT(user.ID, user.Role, user.DapurID, h.Config)
 	if err != nil {
 		JSON(c, 500, "Failed to generate token", nil)
 		return
@@ -88,6 +88,7 @@ func (h *Handler) Login(c *gin.Context) {
 		"user": gin.H{
 			"id": user.ID, "name": user.Name,
 			"email": user.Email, "role": user.Role,
+			"dapur_id": user.DapurID,
 		},
 	})
 }
@@ -112,6 +113,7 @@ func (h *Handler) Register(c *gin.Context) {
 		Email:    req.Email,
 		Password: string(hashedPassword),
 		Role:     req.Role,
+		DapurID:  req.DapurID,
 	}
 
 	if err := h.DB.Create(&user).Error; err != nil {
@@ -120,7 +122,7 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	JSON(c, 201, "User registered successfully", gin.H{
-		"id": user.ID, "email": user.Email, "role": user.Role,
+		"id": user.ID, "email": user.Email, "role": user.Role, "dapur_id": user.DapurID,
 	})
 }
 
@@ -279,8 +281,26 @@ func (h *Handler) CalculateExpiration(c *gin.Context) {
 
 func (h *Handler) GetDeliveries(c *gin.Context) {
 	var deliveries []models.Delivery
-	h.DB.Preload("Schedule.Menu").Preload("School").Preload("Courier").
-		Order("created_at DESC").Find(&deliveries)
+	query := h.DB.Preload("Schedule.Menu").Preload("School").Preload("Courier").Order("created_at DESC")
+
+	// Kurir: only see their own deliveries
+	if courierID, exists := c.Get("user_id"); exists {
+		if role, _ := c.Get("role"); role == "kurir" {
+			query = query.Where("courier_id = ?", courierID)
+		} else if role == "admin" {
+			// Admin: only see deliveries belonging to couriers in their dapur
+			if dapurID, ok := c.Get("dapur_id"); ok && dapurID != nil {
+				// Get all courier IDs in this dapur
+				var courierIDs []uint
+				h.DB.Model(&models.User{}).Where("dapur_id = ? AND role = 'kurir'", dapurID).Pluck("id", &courierIDs)
+				if len(courierIDs) > 0 {
+					query = query.Where("courier_id IN ?", courierIDs)
+				}
+			}
+		}
+	}
+
+	query.Find(&deliveries)
 	JSON(c, 200, "Deliveries retrieved", deliveries)
 }
 
@@ -347,11 +367,18 @@ func (h *Handler) AssignCourier(c *gin.Context) {
 	JSON(c, 200, "Courier assigned to delivery", delivery)
 }
 
-// GetCouriers returns a list of all users with the 'kurir' role.
+// GetCouriers returns couriers scoped to the admin's dapur.
 // GET /api/couriers
 func (h *Handler) GetCouriers(c *gin.Context) {
 	var couriers []models.User
-	h.DB.Where("role = ?", "kurir").Order("name ASC").Find(&couriers)
+	query := h.DB.Where("role = ?", "kurir").Order("name ASC")
+
+	// Scope to admin's dapur if they have one
+	if dapurID, ok := c.Get("dapur_id"); ok && dapurID != nil {
+		query = query.Where("dapur_id = ?", dapurID)
+	}
+
+	query.Find(&couriers)
 	JSON(c, 200, "Couriers retrieved", couriers)
 }
 
@@ -483,6 +510,53 @@ func (h *Handler) GetRoutingGeometry(c *gin.Context) {
 }
 
 // ============================================================================
+// Customized Settings (SQLite)
+// ============================================================================
+
+// GetStyles returns the available UI themes from customized.db
+// GET /api/customized/styles
+func (h *Handler) GetStyles(c *gin.Context) {
+	var styles []models.UIStyle
+	if err := h.CustomDB.Find(&styles).Error; err != nil {
+		JSON(c, 500, "Failed to retrieve styles", nil)
+		return
+	}
+	JSON(c, 200, "Styles retrieved", styles)
+}
+
+// UpdateStyle updates a specific UI theme in customized.db
+// PUT /api/customized/styles/:id
+func (h *Handler) UpdateStyle(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Primary   string `json:"primary_color"`
+		Secondary string `json:"secondary_color"`
+		IsActive  bool   `json:"is_active"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request", nil)
+		return
+	}
+
+	var style models.UIStyle
+	if err := h.CustomDB.First(&style, id).Error; err != nil {
+		JSON(c, 404, "Style not found", nil)
+		return
+	}
+
+	style.Primary = req.Primary
+	style.Secondary = req.Secondary
+	if req.IsActive {
+		// Set all others to false so only one is active
+		h.CustomDB.Model(&models.UIStyle{}).Where("id != ?", id).Update("is_active", false)
+	}
+	style.IsActive = req.IsActive
+
+	h.CustomDB.Save(&style)
+	JSON(c, 200, "Style updated successfully", style)
+}
+
+// ============================================================================
 // Health Check
 // ============================================================================
 
@@ -517,15 +591,16 @@ func (h *Handler) HealthCheck(c *gin.Context) {
 // JWT helper (uses middleware package)
 // ============================================================================
 
-func generateJWT(userID uint, role string, cfg *config.Config) (string, error) {
-	// Import is avoided to prevent circular dependency; inline the logic
+func generateJWT(userID uint, role string, dapurID *uint, cfg *config.Config) (string, error) {
 	claims := struct {
-		UserID uint   `json:"user_id"`
-		Role   string `json:"role"`
+		UserID  uint   `json:"user_id"`
+		Role    string `json:"role"`
+		DapurID *uint  `json:"dapur_id"`
 		jwt.RegisteredClaims
 	}{
-		UserID: userID,
-		Role:   role,
+		UserID:  userID,
+		Role:    role,
+		DapurID: dapurID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

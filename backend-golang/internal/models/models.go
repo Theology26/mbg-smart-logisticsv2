@@ -23,6 +23,7 @@ type User struct {
 	Role      string         `json:"role" gorm:"type:enum('admin','guru','dapur','kurir');not null;default:'guru'"`
 	Email     string         `json:"email" gorm:"type:varchar(255);uniqueIndex;not null"`
 	Password  string         `json:"-" gorm:"type:varchar(255);not null"`
+	DapurID   *uint          `json:"dapur_id" gorm:"index;default:null"` // Multi-tenant: which MBG kitchen this user belongs to
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
@@ -149,6 +150,7 @@ type RegisterRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
 	Role     string `json:"role" binding:"required,oneof=admin guru dapur kurir"`
+	DapurID  *uint  `json:"dapur_id"` // Optional: link to a specific MBG kitchen
 }
 
 // ExpirationRequest is the payload for calculating expiration.

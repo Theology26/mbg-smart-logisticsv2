@@ -39,16 +39,18 @@ func CORS() gin.HandlerFunc {
 
 // Claims represents the JWT token claims.
 type Claims struct {
-	UserID uint   `json:"user_id"`
-	Role   string `json:"role"`
+	UserID  uint   `json:"user_id"`
+	Role    string `json:"role"`
+	DapurID *uint  `json:"dapur_id"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken creates a new JWT token for a user.
-func GenerateToken(userID uint, role string, cfg *config.Config) (string, error) {
+func GenerateToken(userID uint, role string, dapurID *uint, cfg *config.Config) (string, error) {
 	claims := Claims{
-		UserID: userID,
-		Role:   role,
+		UserID:  userID,
+		Role:    role,
+		DapurID: dapurID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -91,8 +93,11 @@ func AuthRequired(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		// Set claims into gin context (keys used by handlers)
 		c.Set("user_id", claims.UserID)
-		c.Set("user_role", claims.Role)
+		c.Set("role", claims.Role)
+		c.Set("user_role", claims.Role) // kept for RoleRequired middleware compatibility
+		c.Set("dapur_id", claims.DapurID)
 		c.Next()
 	}
 }

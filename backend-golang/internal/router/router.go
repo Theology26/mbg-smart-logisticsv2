@@ -105,6 +105,14 @@ func Setup(dbCore *gorm.DB, dbCustom *gorm.DB, cfg *config.Config, osrmClient *o
 		deliveries.PUT("/:id/assign", middleware.RoleRequired("admin"), h.AssignCourier)   // admin only
 	}
 
+	// ── Customized Settings (SQLite) — Admin only ───────────────
+	customized := protected.Group("/customized")
+	customized.Use(middleware.RoleRequired("admin"))
+	{
+		customized.GET("/styles", h.GetStyles)
+		customized.PUT("/styles/:id", h.UpdateStyle)
+	}
+
 	// ── Batch Tracking — Kurir only ──────────────────────────────
 	// Courier app caches GPS locally, sends bulk every few minutes.
 	tracking := protected.Group("/tracking")

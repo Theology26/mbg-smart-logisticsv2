@@ -127,6 +127,7 @@ const navItems = computed(() => {
     { href: '/dashboard/deliveries', icon: '🚚', label: 'Pengiriman', roles: ['admin', 'kurir'] },
     { href: '/dashboard/schools', icon: '🏫', label: 'Sekolah', roles: ['admin', 'guru'] },
     { href: '/dashboard/ingredients', icon: '🥘', label: 'Inventaris', roles: ['admin', 'dapur'] },
+    { href: '/dashboard/customization', icon: '🎨', label: 'Kustomisasi', roles: ['admin'] },
   ]
   return items.filter(item => item.roles.includes(role))
 })

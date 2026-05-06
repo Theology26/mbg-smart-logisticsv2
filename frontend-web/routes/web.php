@@ -35,3 +35,7 @@ Route::get('/dashboard/ingredients', function () {
     return Inertia::render('Dashboard/Ingredients');
 })->name('ingredients');
 
+Route::get('/dashboard/customization', function () {
+    return Inertia::render('Dashboard/Customization');
+})->name('customization');
+
