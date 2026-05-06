@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  Alert, SafeAreaView, AppState, Dimensions
+  View, Text, StyleSheet, SafeAreaView, Dimensions,
+  AppState, TouchableOpacity, ScrollView
 } from 'react-native'
 import * as Location from 'expo-location'
 import MapView, { Marker, Polyline } from 'react-native-maps'
@@ -10,67 +10,104 @@ import { API_CONFIG, TRACKING_CONFIG, STORAGE_KEYS } from '../../constants/confi
 
 const { width, height } = Dimensions.get('window')
 
-// School coordinates — in production these should come from the API
-// We need them locally so we can draw the route even without OSRM
-const DEPOT = { latitude: -7.9666, longitude: 112.6326, name: 'Dapur Pusat' }
-const DEFAULT_SCHOOLS = [
-  { id: 1, name: 'SDN 1 Malang', latitude: -7.975, longitude: 112.628, demand: 10, time_window_minutes: 120 },
-  { id: 2, name: 'SDN 2 Malang', latitude: -7.985, longitude: 112.618, demand: 8, time_window_minutes: 90 },
-  { id: 3, name: 'SDN 3 Malang', latitude: -7.970, longitude: 112.635, demand: 12, time_window_minutes: 150 },
-]
+const DEPOT = { latitude: -7.9666, longitude: 112.6326 }
 
 export default function TrackingScreen() {
-  const [trackingActive, setTrackingActive] = useState(false)
   const [currentLocation, setCurrentLocation] = useState(null)
-  const [cachedPoints, setCachedPoints] = useState(0)
-  const [uploadCount, setUploadCount] = useState(0)
-  const [routeCoords, setRouteCoords] = useState([])      // polyline coords to draw
-  const [schoolMarkers, setSchoolMarkers] = useState([])  // school pins on map
-  const [routeLoading, setRouteLoading] = useState(false)
-  const [routeMode, setRouteMode] = useState(null)        // 'osrm' | 'straight' | null
+  const [deliveries, setDeliveries] = useState([])
+  const [routeCoords, setRouteCoords] = useState([])
+  const [routeMode, setRouteMode] = useState(null)   // 'osrm' | 'straight'
   const [statusLog, setStatusLog] = useState([])
+  const [uploadCount, setUploadCount] = useState(0)
+  const [isReady, setIsReady] = useState(false)
 
   const mapRef = useRef(null)
   const gpsCacheInterval = useRef(null)
   const batchUploadInterval = useRef(null)
   const appStateRef = useRef(AppState.currentState)
 
+  // ── Fully Automated on Mount ───────────────────────────────────
   useEffect(() => {
-    requestPermissions()
-    loadInitialData()
+    bootstrap()
     const sub = AppState.addEventListener('change', next => {
       if (appStateRef.current.match(/inactive|background/) && next === 'active') {
-        if (trackingActive) addLog('📱 App aktif kembali')
+        addLog('📱 App aktif kembali — tracking berlanjut')
       }
       appStateRef.current = next
     })
-    return () => { stopTracking(); sub.remove() }
+    return () => {
+      cleanup()
+      sub.remove()
+    }
   }, [])
+
+  async function bootstrap() {
+    addLog('🔧 Memulai sistem otomatis...')
+    const ok = await requestLocation()
+    if (!ok) return
+
+    // 1. Start GPS background tracking (silent)
+    startGPSBackground()
+
+    // 2. Fetch today's deliveries for this courier
+    await fetchDeliveries()
+
+    setIsReady(true)
+  }
+
+  function cleanup() {
+    if (gpsCacheInterval.current) clearInterval(gpsCacheInterval.current)
+    if (batchUploadInterval.current) clearInterval(batchUploadInterval.current)
+  }
 
   function addLog(msg) {
     const t = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    setStatusLog(prev => [`[${t}] ${msg}`, ...prev].slice(0, 12))
+    setStatusLog(prev => [`[${t}] ${msg}`, ...prev].slice(0, 8))
   }
 
-  async function loadInitialData() {
-    const pts = await getCachedPoints()
-    setCachedPoints(pts.length)
-  }
-
-  async function requestPermissions() {
+  // ── GPS Permission ─────────────────────────────────────────────
+  async function requestLocation() {
     const { status } = await Location.requestForegroundPermissionsAsync()
     if (status !== 'granted') {
-      Alert.alert('Izin Lokasi', 'Aplikasi butuh izin lokasi.')
+      addLog('❌ Izin lokasi ditolak')
       return false
     }
+    addLog('✅ Izin lokasi OK')
     return true
   }
 
-  async function getCachedPoints() {
-    try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEYS.GPS_CACHE)
-      return raw ? JSON.parse(raw) : []
-    } catch { return [] }
+  // ── Background GPS (silent, fully automatic) ──────────────────
+  function startGPSBackground() {
+    addLog('🟢 GPS tracking berjalan otomatis')
+
+    // Record position every 10 seconds
+    gpsCacheInterval.current = setInterval(async () => {
+      try {
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        })
+        setCurrentLocation(loc)
+        await cachePoint(loc)
+
+        // Auto-center map on current position
+        if (mapRef.current) {
+          mapRef.current.animateToRegion({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+            latitudeDelta: 0.03,
+            longitudeDelta: 0.03,
+          }, 1000)
+        }
+      } catch {}
+    }, TRACKING_CONFIG.GPS_CACHE_INTERVAL_MS)
+
+    // Auto-upload batch every 3 minutes
+    batchUploadInterval.current = setInterval(async () => {
+      const pts = await getCachedPoints()
+      if (pts.length > 0) {
+        await uploadBatch(pts)
+      }
+    }, TRACKING_CONFIG.BATCH_UPLOAD_INTERVAL_MS)
   }
 
   async function cachePoint(loc) {
@@ -85,42 +122,17 @@ export default function TrackingScreen() {
       }
       const updated = [...existing, pt]
       await AsyncStorage.setItem(STORAGE_KEYS.GPS_CACHE, JSON.stringify(updated))
-      setCachedPoints(updated.length)
-      if (updated.length >= TRACKING_CONFIG.MAX_BATCH_SIZE) await uploadBatch(updated)
-    } catch (e) { console.error('Cache error:', e) }
+      if (updated.length >= TRACKING_CONFIG.MAX_BATCH_SIZE) {
+        await uploadBatch(updated)
+      }
+    } catch {}
   }
 
-  async function startTracking() {
-    if (!await requestPermissions()) return
-    setTrackingActive(true)
-    addLog('🟢 GPS Tracking Aktif')
-
-    gpsCacheInterval.current = setInterval(async () => {
-      try {
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
-        setCurrentLocation(loc)
-        await cachePoint(loc)
-        if (mapRef.current) {
-          mapRef.current.animateToRegion({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            latitudeDelta: 0.015, longitudeDelta: 0.015,
-          }, 800)
-        }
-      } catch (e) { addLog(`⚠️ GPS: ${e.message}`) }
-    }, TRACKING_CONFIG.GPS_CACHE_INTERVAL_MS)
-
-    batchUploadInterval.current = setInterval(async () => {
-      const pts = await getCachedPoints()
-      if (pts.length > 0) await uploadBatch(pts)
-    }, TRACKING_CONFIG.BATCH_UPLOAD_INTERVAL_MS)
-  }
-
-  function stopTracking() {
-    if (gpsCacheInterval.current) { clearInterval(gpsCacheInterval.current); gpsCacheInterval.current = null }
-    if (batchUploadInterval.current) { clearInterval(batchUploadInterval.current); batchUploadInterval.current = null }
-    setTrackingActive(false)
-    addLog('🔴 Tracking Berhenti')
+  async function getCachedPoints() {
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.GPS_CACHE)
+      return raw ? JSON.parse(raw) : []
+    } catch { return [] }
   }
 
   async function uploadBatch(points) {
@@ -141,136 +153,122 @@ export default function TrackingScreen() {
       clearTimeout(tid)
       if (res.ok) {
         await AsyncStorage.removeItem(STORAGE_KEYS.GPS_CACHE)
-        setCachedPoints(0)
         setUploadCount(p => p + points.length)
-        addLog(`✅ Upload ${points.length} titik GPS berhasil`)
-      } else {
-        let msg = 'Error'
-        try { const d = await res.json(); msg = d.message || msg } catch {}
-        addLog(`❌ Upload gagal ${res.status}: ${msg}`)
+        addLog(`📡 ${points.length} titik GPS terkirim ke server`)
       }
-    } catch (e) {
-      addLog(`❌ Koneksi gagal: ${e.name === 'AbortError' ? 'Timeout' : e.message}`)
-    }
+    } catch {}
   }
 
-  async function manualUpload() {
-    const pts = await getCachedPoints()
-    if (!pts.length) { Alert.alert('Info', 'Tidak ada data GPS untuk diupload.'); return }
-    addLog(`📤 Upload manual ${pts.length} titik...`)
-    await uploadBatch(pts)
-  }
-
-  // ── Route Optimization ────────────────────────────────────────
-  // Step 1: Ask AI for optimized school order
-  // Step 2: Try to get real road polyline from Golang/OSRM
-  // Step 3: If OSRM fails → draw straight lines (still useful!)
-  async function optimizeRoute() {
-    setRouteLoading(true)
-    setRouteCoords([])
-    setSchoolMarkers([])
-    setRouteMode(null)
+  // ── Fetch Today's Deliveries ───────────────────────────────────
+  async function fetchDeliveries() {
+    addLog('📦 Mengambil data pengiriman hari ini...')
     try {
-      addLog('🧠 Tanya AI untuk urutan sekolah...')
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
+      const userRaw = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA)
+      const user = userRaw ? JSON.parse(userRaw) : null
 
       const ctrl = new AbortController()
-      const tid = setTimeout(() => ctrl.abort(), 20000)
-      const aiRes = await fetch(`${API_CONFIG.AI_SERVICE_URL}/routing/optimize/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          depot_lat: DEPOT.latitude,
-          depot_lng: DEPOT.longitude,
-          vehicle_capacity: 50,
-          max_time_minutes: 180,
-          schools: DEFAULT_SCHOOLS,
-        }),
+      const tid = setTimeout(() => ctrl.abort(), 15000)
+      const res = await fetch(`${API_CONFIG.BACKEND_URL}/api/deliveries/`, {
+        headers: { 'Authorization': `Bearer ${token}` },
         signal: ctrl.signal,
       })
       clearTimeout(tid)
 
-      if (!aiRes.ok) { addLog('❌ AI service error'); setRouteLoading(false); return }
-      const aiData = await aiRes.json()
-      const orderedStops = aiData.route || []
+      const data = await res.json()
+      const all = data.data || []
 
-      if (!orderedStops.length) { addLog('⚠️ Tidak ada rute dari AI'); setRouteLoading(false); return }
-      addLog(`✅ AI: ${orderedStops.length} sekolah diurutkan`)
+      // Filter by this courier's ID and only pending/in_transit
+      const mine = user
+        ? all.filter(d => d.courier_id === user.id && ['pending', 'in_transit'].includes(d.status))
+        : all.filter(d => ['pending', 'in_transit'].includes(d.status))
 
-      // Build ordered school array from AI sequence
-      const orderedSchools = orderedStops
-        .map(s => DEFAULT_SCHOOLS.find(d => d.id === s.school_id))
-        .filter(Boolean)
+      setDeliveries(mine)
+      addLog(`✅ ${mine.length} sekolah perlu diantarkan`)
 
-      // Show school markers on map
-      setSchoolMarkers(orderedSchools)
-
-      // Build straight-line waypoints (Depot → S1 → S2 → ...)
-      const straightLine = [
-        { latitude: DEPOT.latitude, longitude: DEPOT.longitude },
-        ...orderedSchools.map(s => ({ latitude: s.latitude, longitude: s.longitude })),
-      ]
-
-      // Step 2: Try OSRM via Golang backend
-      addLog('🗺️ Mencoba ambil jalur jalan via OSRM...')
-      let usedOSRM = false
-      try {
-        const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
-        const waypoints = [
-          { lat: DEPOT.latitude, lng: DEPOT.longitude },
-          ...orderedSchools.map(s => ({ lat: s.latitude, lng: s.longitude })),
-        ]
-        const geoCtrl = new AbortController()
-        const geoTid = setTimeout(() => geoCtrl.abort(), 10000) // 10s timeout for OSRM
-        const geoRes = await fetch(`${API_CONFIG.BACKEND_URL}/api/routing/geometry/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ points: waypoints }),
-          signal: geoCtrl.signal,
-        })
-        clearTimeout(geoTid)
-
-        if (geoRes.ok) {
-          const geoData = await geoRes.json()
-          const encoded = geoData?.data?.geometry
-          if (encoded && encoded.length > 0) {
-            const decoded = decodePolyline(encoded)
-            if (decoded.length > 1) {
-              setRouteCoords(decoded)
-              setRouteMode('osrm')
-              usedOSRM = true
-              addLog(`✅ Rute jalanan OSRM berhasil (${decoded.length} poin)`)
-              fitMapToRoute(decoded)
-            }
-          }
-        }
-      } catch {
-        // OSRM failed — this is expected when phone can't reach Docker
+      if (mine.length > 0) {
+        await buildRoute(mine)
       }
-
-      // Fallback: straight lines — always works!
-      if (!usedOSRM) {
-        setRouteCoords(straightLine)
-        setRouteMode('straight')
-        addLog('📏 OSRM tidak tersedia — menggunakan rute garis lurus')
-        fitMapToRoute(straightLine)
-      }
-
     } catch (e) {
-      addLog(`❌ Error: ${e.name === 'AbortError' ? 'AI timeout' : e.message}`)
-    } finally {
-      setRouteLoading(false)
+      addLog(`❌ Gagal ambil data: ${e.name === 'AbortError' ? 'Timeout' : e.message}`)
     }
   }
 
-  function fitMapToRoute(coords) {
+  // ── Build Route from Deliveries ────────────────────────────────
+  async function buildRoute(deliveryList) {
+    addLog('🧠 Menghitung rute optimal...')
+
+    const schools = deliveryList
+      .filter(d => d.school?.latitude && d.school?.longitude)
+      .map(d => ({
+        id: d.school.id,
+        name: d.school.name,
+        latitude: parseFloat(d.school.latitude),
+        longitude: parseFloat(d.school.longitude),
+        demand: d.school.demand_quantity || 10,
+        time_window_minutes: 120,
+      }))
+
+    if (schools.length === 0) {
+      addLog('⚠️ Sekolah belum punya koordinat GPS')
+      return
+    }
+
+    // Build straight-line route (Depot → schools)
+    const straightLine = [
+      { latitude: DEPOT.latitude, longitude: DEPOT.longitude },
+      ...schools.map(s => ({ latitude: s.latitude, longitude: s.longitude })),
+    ]
+
+    // Try to get road-following route from OSRM via Golang backend
+    let usedRoad = false
+    try {
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
+      const waypoints = [
+        { lat: DEPOT.latitude, lng: DEPOT.longitude },
+        ...schools.map(s => ({ lat: s.latitude, lng: s.longitude })),
+      ]
+      const ctrl = new AbortController()
+      const tid = setTimeout(() => ctrl.abort(), 8000) // short timeout
+      const geoRes = await fetch(`${API_CONFIG.BACKEND_URL}/api/routing/geometry/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ points: waypoints }),
+        signal: ctrl.signal,
+      })
+      clearTimeout(tid)
+      if (geoRes.ok) {
+        const geoData = await geoRes.json()
+        const encoded = geoData?.data?.geometry
+        if (encoded) {
+          const decoded = decodePolyline(encoded)
+          if (decoded.length > 1) {
+            setRouteCoords(decoded)
+            setRouteMode('osrm')
+            usedRoad = true
+            addLog('🗺️ Rute jalan (OSRM) berhasil')
+            fitMap(decoded)
+          }
+        }
+      }
+    } catch {}
+
+    if (!usedRoad) {
+      setRouteCoords(straightLine)
+      setRouteMode('straight')
+      addLog('📏 Rute garis lurus (OSRM tidak tersedia)')
+      fitMap(straightLine)
+    }
+  }
+
+  function fitMap(coords) {
     if (!mapRef.current || !coords.length) return
     mapRef.current.fitToCoordinates(coords, {
-      edgePadding: { top: 60, right: 40, bottom: 320, left: 40 },
+      edgePadding: { top: 80, right: 40, bottom: 280, left: 40 },
       animated: true,
     })
   }
 
-  // Decode Google-encoded polyline → [{latitude, longitude}]
   function decodePolyline(encoded) {
     const pts = []
     let i = 0, lat = 0, lng = 0
@@ -286,17 +284,18 @@ export default function TrackingScreen() {
     return pts
   }
 
+  // ── Render ─────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
       <MapView
         ref={mapRef}
         style={styles.map}
-        initialRegion={{ latitude: DEPOT.latitude, longitude: DEPOT.longitude, latitudeDelta: 0.06, longitudeDelta: 0.06 }}
+        initialRegion={{ ...DEPOT, latitudeDelta: 0.06, longitudeDelta: 0.06 }}
       >
-        {/* Depot marker */}
-        <Marker coordinate={{ latitude: DEPOT.latitude, longitude: DEPOT.longitude }} title="Dapur Pusat" pinColor="#22c55e" />
+        {/* Depot — starting point */}
+        <Marker coordinate={DEPOT} title="Dapur Pusat" description="Titik awal pengiriman" pinColor="#22c55e" />
 
-        {/* Current position */}
+        {/* Current courier position */}
         {currentLocation && (
           <Marker
             coordinate={{ latitude: currentLocation.coords.latitude, longitude: currentLocation.coords.longitude }}
@@ -305,17 +304,20 @@ export default function TrackingScreen() {
           />
         )}
 
-        {/* School markers */}
-        {schoolMarkers.map((s, i) => (
-          <Marker
-            key={s.id}
-            coordinate={{ latitude: s.latitude, longitude: s.longitude }}
-            title={`${i + 1}. ${s.name}`}
-            pinColor="#f59e0b"
-          />
-        ))}
+        {/* School markers from deliveries */}
+        {deliveries
+          .filter(d => d.school?.latitude && d.school?.longitude)
+          .map((d, i) => (
+            <Marker
+              key={d.id}
+              coordinate={{ latitude: parseFloat(d.school.latitude), longitude: parseFloat(d.school.longitude) }}
+              title={`${i + 1}. ${d.school.name}`}
+              description={`Status: ${d.status}`}
+              pinColor={d.status === 'in_transit' ? '#f59e0b' : '#ef4444'}
+            />
+          ))}
 
-        {/* Route line — blue solid = OSRM road, orange dashed = straight line */}
+        {/* Route line */}
         {routeCoords.length > 1 && (
           <Polyline
             coordinates={routeCoords}
@@ -327,87 +329,90 @@ export default function TrackingScreen() {
         )}
       </MapView>
 
-      {/* Overlay UI */}
-      <View style={styles.overlay}>
-        <View style={styles.topCard}>
-          <View style={styles.row}>
-            <Text style={styles.title}>🚚 Kurir Tracker</Text>
-            <View style={[styles.dot, { backgroundColor: trackingActive ? '#22c55e' : '#4b5563' }]} />
-          </View>
-          {routeMode && (
-            <Text style={[styles.routeTag, { color: routeMode === 'osrm' ? '#60a5fa' : '#fb923c' }]}>
-              {routeMode === 'osrm' ? '🗺️ Rute Jalanan (OSRM)' : '📏 Rute Garis Lurus (OSRM tidak tersedia)'}
+      {/* Floating status panel */}
+      <View style={styles.panel}>
+        {/* Header */}
+        <View style={styles.panelHeader}>
+          <View>
+            <Text style={styles.panelTitle}>🚚 Pengiriman Hari Ini</Text>
+            <Text style={styles.panelSub}>
+              {deliveries.length} sekolah · {uploadCount} titik GPS terkirim
             </Text>
-          )}
-          <TouchableOpacity
-            style={[styles.btnToggle, trackingActive ? styles.btnRed : styles.btnGreen]}
-            onPress={trackingActive ? stopTracking : startTracking}
-          >
-            <Text style={styles.btnToggleText}>{trackingActive ? '⏹  STOP TRACKING' : '▶  MULAI TRACKING'}</Text>
-          </TouchableOpacity>
+          </View>
+          <View style={styles.liveIndicator}>
+            <View style={styles.liveDot} />
+            <Text style={styles.liveTxt}>LIVE</Text>
+          </View>
         </View>
 
-        <ScrollView style={styles.log} showsVerticalScrollIndicator={false}>
-          {!statusLog.length && <Text style={styles.logEmpty}>Log aktivitas akan muncul di sini...</Text>}
+        {/* Route mode badge */}
+        {routeMode && (
+          <View style={[styles.routeBadge, { borderColor: routeMode === 'osrm' ? '#3b82f6' : '#f97316' }]}>
+            <Text style={[styles.routeBadgeTxt, { color: routeMode === 'osrm' ? '#60a5fa' : '#fb923c' }]}>
+              {routeMode === 'osrm' ? '🗺️ Rute Jalanan (OSRM)' : '📏 Rute Garis Lurus'}
+            </Text>
+          </View>
+        )}
+
+        {/* Delivery list */}
+        <ScrollView style={styles.deliveryList} showsVerticalScrollIndicator={false}>
+          {deliveries.length === 0 && isReady && (
+            <Text style={styles.emptyTxt}>Tidak ada pengiriman aktif hari ini.</Text>
+          )}
+          {deliveries.map((d, i) => (
+            <View key={d.id} style={styles.deliveryItem}>
+              <View style={styles.deliveryNum}>
+                <Text style={styles.deliveryNumTxt}>{i + 1}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.deliverySchool}>{d.school?.name || 'Sekolah #' + d.school_id}</Text>
+                <Text style={styles.deliveryStatus}>{d.status?.replace('_', ' ').toUpperCase()}</Text>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+
+        {/* Activity log */}
+        <ScrollView style={styles.logBox} showsVerticalScrollIndicator={false}>
           {statusLog.map((l, i) => (
-            <Text key={i} style={[styles.logText,
+            <Text key={i} style={[styles.logTxt,
               l.includes('✅') && { color: '#4ade80' },
               l.includes('❌') && { color: '#f87171' },
               l.includes('⚠️') && { color: '#fbbf24' },
             ]}>{l}</Text>
           ))}
         </ScrollView>
-
-        <View style={styles.actions}>
-          <View style={styles.stat}>
-            <Text style={styles.statL}>CACHE</Text>
-            <Text style={styles.statV}>{cachedPoints}</Text>
-          </View>
-          <View style={styles.stat}>
-            <Text style={styles.statL}>UPLOAD</Text>
-            <Text style={styles.statV}>{uploadCount}</Text>
-          </View>
-          <TouchableOpacity style={styles.btn} onPress={manualUpload}>
-            <Text style={styles.btnTxt}>📤 UPLOAD</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.btn, { backgroundColor: '#4f46e5' }]} onPress={optimizeRoute} disabled={routeLoading}>
-            <Text style={styles.btnTxt}>{routeLoading ? '⏳' : '🗺️ RUTE'}</Text>
-          </TouchableOpacity>
-        </View>
       </View>
     </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: '#000' },
   map: { width, height },
-  overlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 14, gap: 8 },
-  topCard: {
-    backgroundColor: 'rgba(10, 15, 25, 0.93)', borderRadius: 20, padding: 14,
+  panel: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: 'rgba(10, 15, 25, 0.94)',
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
     borderWidth: 1, borderColor: '#1f2937',
+    padding: 16, paddingBottom: 24, gap: 10,
+    maxHeight: height * 0.45,
   },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  title: { color: '#fff', fontSize: 17, fontWeight: '700' },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  routeTag: { fontSize: 11, fontWeight: '600', marginBottom: 8 },
-  btnToggle: { paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
-  btnGreen: { backgroundColor: '#15803d' },
-  btnRed: { backgroundColor: '#991b1b' },
-  btnToggleText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  log: { maxHeight: 90, backgroundColor: 'rgba(0,0,0,0.78)', borderRadius: 14, padding: 10 },
-  logEmpty: { color: '#4b5563', fontSize: 11 },
-  logText: { color: '#9ca3af', fontSize: 11, marginBottom: 3, fontFamily: 'monospace' },
-  actions: { flexDirection: 'row', gap: 8, alignItems: 'center', paddingBottom: 6 },
-  stat: {
-    flex: 1, backgroundColor: 'rgba(10,15,25,0.93)', borderRadius: 14,
-    padding: 10, alignItems: 'center', borderWidth: 1, borderColor: '#1f2937',
-  },
-  statL: { color: '#6b7280', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
-  statV: { color: '#fff', fontSize: 17, fontWeight: '700', marginTop: 2 },
-  btn: {
-    backgroundColor: '#1f2937', paddingVertical: 12, paddingHorizontal: 14,
-    borderRadius: 14, borderWidth: 1, borderColor: '#374151',
-  },
-  btnTxt: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  panelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  panelTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  panelSub: { color: '#6b7280', fontSize: 12, marginTop: 2 },
+  liveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#1a2a1a', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' },
+  liveTxt: { color: '#22c55e', fontSize: 11, fontWeight: '700' },
+  routeBadge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start' },
+  routeBadgeTxt: { fontSize: 12, fontWeight: '600' },
+  deliveryList: { maxHeight: 100 },
+  deliveryItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+  deliveryNum: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#f59e0b', alignItems: 'center', justifyContent: 'center' },
+  deliveryNumTxt: { color: '#000', fontSize: 12, fontWeight: '700' },
+  deliverySchool: { color: '#fff', fontSize: 13, fontWeight: '500' },
+  deliveryStatus: { color: '#6b7280', fontSize: 10, marginTop: 1 },
+  emptyTxt: { color: '#4b5563', fontSize: 13, textAlign: 'center', paddingVertical: 10 },
+  logBox: { maxHeight: 70, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 10, padding: 8 },
+  logTxt: { color: '#6b7280', fontSize: 10, marginBottom: 2, fontFamily: 'monospace' },
 })
