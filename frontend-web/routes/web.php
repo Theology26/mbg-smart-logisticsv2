@@ -39,7 +39,7 @@ Route::get('/dashboard/customization', function () {
     return Inertia::render('Dashboard/Customization');
 })->name('customization');
 
-Route::get('/dashboard/system-settings', function () {
-    return Inertia::render('Dashboard/SystemSettings');
-})->name('system-settings');
+Route::get('/studio', function () {
+    return Inertia::render('Dashboard/Studio');
+})->name('studio');
 

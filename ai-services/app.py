@@ -365,27 +365,39 @@ async def optimize_route(request: RouteOptimizeRequest):
         max_time=request.max_time_minutes,
     )
 
-    # Run A2C inference (skeleton — untrained weights)
-    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(DEVICE)
+    # HEURISTIC OPTIMIZATION (Weighted Nearest Neighbor)
+    # Instead of random RL weights, we use a scoring formula:
+    # Score = (1 / Distance) + (Urgency_Weight * EpsilonScore)
+    
+    scored_schools = []
+    curr_lat, curr_lng = request.depot_lat, request.depot_lng
+    
+    # Calculate distance and urgency score for each school
+    for s in request.schools:
+        dist = ((s.latitude - curr_lat)**2 + (s.longitude - curr_lng)**2)**0.5
+        dist = max(dist, 0.0001) # Avoid division by zero
+        
+        # Urgency is s.time_window_minutes (Epsilon Score passed from Go)
+        urgency = s.time_window_minutes 
+        
+        # Heuristic: Closer is better, higher urgency is better
+        # We weigh distance more heavily to avoid "muter-muter"
+        score = (1.0 / dist) + (urgency * 5.0) 
+        scored_schools.append({'school': s, 'score': score})
 
-    with torch.no_grad():
-        action_probs, state_value = a2c_model(state_tensor)
-
-    # Use action probabilities to rank schools (even with random weights,
-    # this demonstrates the full inference pipeline)
-    probs = action_probs.squeeze().cpu().numpy()[:n_schools]
-
-    # Build route from probability ranking
-    school_indices = np.argsort(-probs)  # Sort by descending probability
+    # Sort schools by calculated score descending
+    scored_schools.sort(key=lambda x: x['score'], reverse=True)
+    
     route = []
     cumulative_time = 0.0
-
-    for seq, idx in enumerate(school_indices):
-        if idx >= n_schools:
-            continue
-        school = request.schools[idx]
-        # Simple time estimate (would use OSRM in production)
-        est_minutes = 10.0 + seq * 5.0  # Placeholder
+    for seq, item in enumerate(scored_schools):
+        school = item['school']
+        # Rough estimate: 1 degree approx 111km, 1km approx 2 mins in city
+        # dist_km = (((school.latitude - curr_lat)**2 + (school.longitude - curr_lng)**2)**0.5) * 111
+        # est_minutes = dist_km * 2.0 + 5.0 # 5 mins service time
+        
+        # Simple sequence estimate for UI
+        est_minutes = 10.0 + seq * 8.0 
         cumulative_time += est_minutes
 
         if cumulative_time > request.max_time_minutes:
@@ -397,16 +409,18 @@ async def optimize_route(request: RouteOptimizeRequest):
             school_name=school.name,
             estimated_minutes=round(cumulative_time, 1),
         ))
+        # Update current pos to last visited school for next step calculation
+        curr_lat, curr_lng = school.latitude, school.longitude
 
     inference_time_ms = (time.time() - start_time) * 1000
 
-    logger.info(f"🧠 [A2C] Route optimized: {len(route)}/{n_schools} schools, "
-                f"{inference_time_ms:.0f}ms on {DEVICE}")
+    logger.info(f"🧠 [Heuristic] Route optimized: {len(route)}/{n_schools} schools, "
+                f"{inference_time_ms:.2f}ms (Distance-Urgency Weighted)")
 
     return RouteOptimizeResponse(
         route=route,
         total_schools=len(route),
-        model_type="a2c_skeleton",
+        model_type="weighted_heuristic_v1",
         device=str(DEVICE),
         inference_time_ms=round(inference_time_ms, 2),
     )

@@ -132,8 +132,7 @@ const navItems = computed(() => {
     { href: '/dashboard/deliveries', icon: '🚚', label: 'Pengiriman', roles: ['admin', 'kurir'] },
     { href: '/dashboard/schools', icon: '🏫', label: industryConfig.value.destination_label, roles: ['admin', 'guru'] },
     { href: '/dashboard/ingredients', icon: '🥘', label: `Daftar ${industryConfig.value.item_label}`, roles: ['admin', 'dapur'] },
-    { href: '/dashboard/customization', icon: '🎨', label: 'Kustomisasi', roles: ['admin'] },
-    { href: '/dashboard/system-settings', icon: '⚙️', label: 'Pengaturan Sistem', roles: ['admin'] },
+    { href: '/studio', icon: '🎨', label: 'Customizer Studio', roles: ['admin'] },
   ]
   return items.filter(item => item.roles.includes(role))
 })
