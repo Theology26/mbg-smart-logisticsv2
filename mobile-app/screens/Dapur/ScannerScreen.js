@@ -13,20 +13,12 @@ export default function ScannerScreen() {
   const [mode, setMode] = useState('home')
   const [capturedImage, setCapturedImage] = useState(null)
   const [ocrLoading, setOcrLoading] = useState(false)
-  const [recommendLoading, setRecommendLoading] = useState(false)
   const [ocrResult, setOcrResult] = useState(null)
-  const [menuRecs, setMenuRecs] = useState(null)
-  const [flashOn, setFlashOn] = useState(false)
   const cameraRef = useRef(null)
 
   useEffect(() => {
     if (!cameraPermission?.granted) requestCameraPermission()
   }, [])
-
-  async function getAuthHeaders() {
-    const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
-    return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
-  }
 
   async function takePhoto() {
     if (!cameraRef.current) return
@@ -36,14 +28,6 @@ export default function ScannerScreen() {
       setMode('result')
       setOcrResult(null)
     } catch (err) { Alert.alert('Error', err.message) }
-  }
-
-  async function pickFromGallery() {
-    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 })
-    if (!result.canceled && result.assets[0]) {
-      setCapturedImage(result.assets[0])
-      setMode('result')
-    }
   }
 
   async function scanWithOCR() {
@@ -59,6 +43,7 @@ export default function ScannerScreen() {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.OCR_TIMEOUT_MS)
 
+      // Fix: Use the correct endpoint /ocr/scan/
       const response = await fetch(`${API_CONFIG.AI_SERVICE_URL}/ocr/scan/`, {
         method: 'POST',
         body: formData,
@@ -66,40 +51,25 @@ export default function ScannerScreen() {
         signal: controller.signal,
       })
       clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        const text = await response.text()
+        throw new Error(`Server Error: ${text.substring(0, 50)}`)
+      }
+
       const data = await response.json()
       setOcrResult(data)
-    } catch (err) { Alert.alert('Gagal', err.message) }
-    finally { setOcrLoading(false) }
-  }
-
-  async function recommendMenu() {
-    setRecommendLoading(true)
-    try {
-      const headers = await getAuthHeaders()
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.DEFAULT_TIMEOUT_MS)
-
-      const response = await fetch(`${API_CONFIG.BACKEND_URL}/api/menu/recommend/`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ available_ingredients: [], student_count: 100 }),
-        signal: controller.signal,
-      })
-      clearTimeout(timeoutId)
-      const data = await response.json()
-      setMenuRecs(data.data)
-    } catch (err) { Alert.alert('Error', err.message) }
-    finally { setRecommendLoading(false) }
+    } catch (err) { 
+      Alert.alert('OCR Gagal', err.message) 
+    } finally { setOcrLoading(false) }
   }
 
   if (mode === 'home') {
     return (
       <SafeAreaView style={styles.container}>
         <Text style={styles.title}>📸 Scanner Nota</Text>
-        <View style={styles.actionGrid}>
-          <TouchableOpacity style={styles.btn} onPress={() => setMode('camera')}><Text style={styles.btnText}>Buka Kamera</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.btn} onPress={pickFromGallery}><Text style={styles.btnText}>Dari Galeri</Text></TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.btn} onPress={() => setMode('camera')}><Text style={styles.btnText}>Buka Kamera</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.btn, {marginTop: 10}]} onPress={() => {}}><Text style={styles.btnText}>Pilih Galeri</Text></TouchableOpacity>
       </SafeAreaView>
     )
   }
@@ -107,15 +77,15 @@ export default function ScannerScreen() {
   return (
     <SafeAreaView style={styles.container}>
        <ScrollView>
+          <TouchableOpacity onPress={() => setMode('home')}><Text style={{color: '#6b7280', marginBottom: 10}}>← Kembali</Text></TouchableOpacity>
           {capturedImage && <Image source={{ uri: capturedImage.uri }} style={styles.preview} />}
           <TouchableOpacity style={styles.btnScan} onPress={scanWithOCR} disabled={ocrLoading}>
-            <Text style={styles.btnText}>{ocrLoading ? 'Loading...' : 'Scan Sekarang'}</Text>
+            <Text style={styles.btnText}>{ocrLoading ? 'Sedang Memproses...' : 'Scan Nota Sekarang'}</Text>
           </TouchableOpacity>
           {ocrResult && (
             <View style={styles.resCard}>
-               <Text style={styles.resTitle}>Bahan Terdeteksi:</Text>
-               {ocrResult.ingredients?.map((it, i) => <Text key={i} style={styles.it}>{it.name}</Text>)}
-               <TouchableOpacity style={styles.btnAi} onPress={recommendMenu}><Text style={styles.btnText}>Rekomendasi AI</Text></TouchableOpacity>
+               <Text style={styles.resTitle}>Hasil OCR:</Text>
+               {ocrResult.ingredients?.map((it, i) => <Text key={i} style={styles.it}>• {it.name}</Text>)}
             </View>
           )}
        </ScrollView>
@@ -126,13 +96,11 @@ export default function ScannerScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#030712', padding: 20 },
   title: { color: '#fff', fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
-  actionGrid: { gap: 10 },
   btn: { backgroundColor: '#111827', padding: 20, borderRadius: 12, borderWidth: 1, borderColor: '#1f2937' },
   btnText: { color: '#fff', fontWeight: 'bold', textAlign: 'center' },
-  preview: { width: '100%', height: 300, borderRadius: 12, marginBottom: 20 },
-  btnScan: { backgroundColor: '#22c55e', padding: 16, borderRadius: 12 },
+  preview: { width: '100%', height: 350, borderRadius: 12, marginBottom: 20 },
+  btnScan: { backgroundColor: '#22c55e', padding: 18, borderRadius: 12 },
   resCard: { marginTop: 20, padding: 15, backgroundColor: '#111827', borderRadius: 12 },
   resTitle: { color: '#fff', fontWeight: 'bold', marginBottom: 10 },
-  it: { color: '#9ca3af', marginBottom: 5 },
-  btnAi: { backgroundColor: '#4f46e5', padding: 12, borderRadius: 10, marginTop: 15 }
+  it: { color: '#9ca3af', marginBottom: 5 }
 })

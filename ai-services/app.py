@@ -207,7 +207,7 @@ class RouteOptimizeResponse(BaseModel):
 # POST /ocr/scan — PaddleOCR Receipt Scanning
 # ============================================================================
 
-@app.post("/ocr/scan", response_model=OCRResponse)
+@app.post("/ocr/scan/", response_model=OCRResponse)
 async def scan_receipt(file: UploadFile = File(...)):
     """
     Scan a receipt/nota image and extract ingredient data using PaddleOCR.
