@@ -29,42 +29,11 @@ type categoryRule struct {
 	Epsilon        float64
 }
 
-// rules maps each category to its expiration parameters.
-var rules = map[string]categoryRule{
-	"Santan": {ShelfLifeHours: 4.0, Epsilon: 0.8},
-	"Basah":  {ShelfLifeHours: 6.0, Epsilon: 0.5},
-	"Kering": {ShelfLifeHours: 12.0, Epsilon: 0.2},
-}
-
-// CalculateExpiration computes the expiration time and epsilon score.
-//
-// Parameters:
-//   - category: "Santan", "Basah", or "Kering"
-//   - cookTime: when the food finished cooking
-//   - temperature: ambient temperature in °C
-//
-// Returns:
-//   - expirationTime: absolute deadline for safe consumption
-//   - epsilonScore: urgency factor (0.0–1.0, higher = more urgent)
-//
-// Rules:
-//   - "Santan" → 4 hrs shelf-life, ε = 0.8
-//   - "Basah"  → 6 hrs shelf-life, ε = 0.5
-//   - "Kering" → 12 hrs shelf-life, ε = 0.2
-//   - If temperature > 30°C → reduce shelf-life by 20%, add 0.1 to ε
-func CalculateExpiration(category string, cookTime time.Time, temperature float64) *Result {
-	rule, exists := rules[category]
-	if !exists {
-		// Default to most conservative (Santan) if unknown category
-		rule = rules["Santan"]
-		category = "Santan"
-	}
-
-	shelfLife := rule.ShelfLifeHours
-	epsilon := rule.Epsilon
+// CalculateExpiration computes the expiration time and epsilon score based on dynamic rules.
+func CalculateExpiration(category string, cookTime time.Time, temperature float64, shelfLife float64, epsilon float64) *Result {
 	tempAdjusted := false
 
-	// Temperature adjustment: >30°C degrades food faster
+	// Temperature adjustment: >30°C degrades items faster (if applicable)
 	if temperature > 30.0 {
 		shelfLife *= 0.8  // Reduce by 20%
 		epsilon += 0.1    // Increase urgency

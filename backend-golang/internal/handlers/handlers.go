@@ -224,20 +224,27 @@ func (h *Handler) CreateSchedule(c *gin.Context) {
 		return
 	}
 
-	// Load the menu to get category for expiration calculation
+	// Load the menu to get category
 	var menu models.Menu
 	if err := h.DB.First(&menu, schedule.MenuID).Error; err != nil {
-		JSON(c, 404, "Menu not found", nil)
+		JSON(c, 404, "Item/Menu not found", nil)
 		return
 	}
 
-	// Calculate expiration using the rule-based service
-	result := expiration.CalculateExpiration(menu.Category, schedule.CookingCompletionTime, 28.0)
+	// Fetch Dynamic AI Rule from SQLite
+	var rule models.SystemRule
+	if err := h.CustomDB.Where("category_name = ?", menu.Category).First(&rule).Error; err != nil {
+		// Fallback defaults if rule not found
+		rule = models.SystemRule{UrgencyFactor: 0.5, ExpiryHours: 6}
+	}
+
+	// Calculate expiration using the dynamic parameters
+	result := expiration.CalculateExpiration(menu.Category, schedule.CookingCompletionTime, 28.0, rule.ExpiryHours, rule.UrgencyFactor)
 	schedule.ExpirationTime = result.ExpirationTime
 	schedule.EpsilonScore = result.EpsilonScore
 
 	h.DB.Create(&schedule)
-	JSON(c, 201, "Schedule created with expiration", gin.H{
+	JSON(c, 201, "Operation created with AI optimization", gin.H{
 		"schedule":   schedule,
 		"expiration": result,
 	})
@@ -262,7 +269,13 @@ func (h *Handler) CalculateExpiration(c *gin.Context) {
 		return
 	}
 
-	result := expiration.CalculateExpiration(req.Category, cookTime, req.Temperature)
+	// Fetch Dynamic AI Rule from SQLite
+	var rule models.SystemRule
+	if err := h.CustomDB.Where("category_name = ?", req.Category).First(&rule).Error; err != nil {
+		rule = models.SystemRule{UrgencyFactor: 0.5, ExpiryHours: 6}
+	}
+
+	result := expiration.CalculateExpiration(req.Category, cookTime, req.Temperature, rule.ExpiryHours, rule.UrgencyFactor)
 
 	JSON(c, 200, "Expiration calculated", models.ExpirationResponse{
 		Category:       result.Category,
@@ -554,6 +567,47 @@ func (h *Handler) UpdateStyle(c *gin.Context) {
 
 	h.CustomDB.Save(&style)
 	JSON(c, 200, "Style updated successfully", style)
+}
+
+// GetSystemRules returns dynamic AI rules from SQLite
+// GET /api/customized/rules
+func (h *Handler) GetSystemRules(c *gin.Context) {
+	var rules []models.SystemRule
+	h.CustomDB.Find(&rules)
+	JSON(c, 200, "System rules retrieved", rules)
+}
+
+// UpdateSystemRule updates an AI rule (e.g., expiry hours for a category)
+// PUT /api/customized/rules/:id
+func (h *Handler) UpdateSystemRule(c *gin.Context) {
+	id := c.Param("id")
+	var req models.SystemRule
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request", nil)
+		return
+	}
+	h.CustomDB.Model(&models.SystemRule{}).Where("id = ?", id).Updates(req)
+	JSON(c, 200, "Rule updated", req)
+}
+
+// GetIndustryConfig returns global system identity settings
+// GET /api/customized/config
+func (h *Handler) GetIndustryConfig(c *gin.Context) {
+	var config models.IndustryConfig
+	h.CustomDB.First(&config)
+	JSON(c, 200, "Industry config retrieved", config)
+}
+
+// UpdateIndustryConfig updates the system identity (e.g., name, labels)
+// PUT /api/customized/config
+func (h *Handler) UpdateIndustryConfig(c *gin.Context) {
+	var req models.IndustryConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request", nil)
+		return
+	}
+	h.CustomDB.Model(&models.IndustryConfig{}).Where("id = 1").Updates(req)
+	JSON(c, 200, "System configuration updated", req)
 }
 
 // ============================================================================

@@ -11,8 +11,8 @@
           </svg>
         </div>
         <div>
-          <p class="text-white font-semibold text-sm leading-tight">MBG Logistics</p>
-          <p class="text-gray-400 text-xs">Smart Distribution</p>
+          <p class="text-white font-semibold text-sm leading-tight">{{ industryConfig.industry_name }}</p>
+          <p class="text-gray-400 text-xs">Smart Distribution Platform</p>
         </div>
       </div>
 
@@ -102,6 +102,11 @@ const user = computed(() => {
 
 const systemStatus = ref({ osrm: false, ai: false })
 const currentTime = ref('')
+const industryConfig = ref({
+  industry_name: 'MBG Logistics',
+  destination_label: 'Sekolah',
+  item_label: 'Menu'
+})
 
 // Role badge styling
 const roleBadgeClass = computed(() => ({
@@ -122,12 +127,13 @@ const navItems = computed(() => {
   const role = user.value?.role
   const items = [
     { href: '/dashboard', icon: '🏠', label: 'Dashboard', roles: ['admin', 'guru', 'dapur', 'kurir'] },
-    { href: '/dashboard/map', icon: '🗺️', label: 'Peta Pengiriman', roles: ['admin', 'guru'] },
-    { href: '/dashboard/schedules', icon: '📅', label: 'Jadwal Masak', roles: ['admin', 'dapur'] },
+    { href: '/dashboard/map', icon: '🗺️', label: `Peta ${industryConfig.value.destination_label}`, roles: ['admin', 'guru'] },
+    { href: '/dashboard/schedules', icon: '📅', label: `Jadwal ${industryConfig.value.item_label}`, roles: ['admin', 'dapur'] },
     { href: '/dashboard/deliveries', icon: '🚚', label: 'Pengiriman', roles: ['admin', 'kurir'] },
-    { href: '/dashboard/schools', icon: '🏫', label: 'Sekolah', roles: ['admin', 'guru'] },
-    { href: '/dashboard/ingredients', icon: '🥘', label: 'Inventaris', roles: ['admin', 'dapur'] },
+    { href: '/dashboard/schools', icon: '🏫', label: industryConfig.value.destination_label, roles: ['admin', 'guru'] },
+    { href: '/dashboard/ingredients', icon: '🥘', label: `Daftar ${industryConfig.value.item_label}`, roles: ['admin', 'dapur'] },
     { href: '/dashboard/customization', icon: '🎨', label: 'Kustomisasi', roles: ['admin'] },
+    { href: '/dashboard/system-settings', icon: '⚙️', label: 'Pengaturan Sistem', roles: ['admin'] },
   ]
   return items.filter(item => item.roles.includes(role))
 })
@@ -138,8 +144,16 @@ onMounted(() => {
   updateTime()
   clockInterval = setInterval(updateTime, 1000)
   checkSystemStatus()
+  fetchIndustryConfig()
 })
 onUnmounted(() => clearInterval(clockInterval))
+
+async function fetchIndustryConfig() {
+  try {
+    const res = await axios.get('/api/customized/config')
+    industryConfig.value = res.data.data
+  } catch {}
+}
 
 function updateTime() {
   currentTime.value = new Date().toLocaleTimeString('id-ID', {

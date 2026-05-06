@@ -111,6 +111,12 @@ func Setup(dbCore *gorm.DB, dbCustom *gorm.DB, cfg *config.Config, osrmClient *o
 	{
 		customized.GET("/styles", h.GetStyles)
 		customized.PUT("/styles/:id", h.UpdateStyle)
+		
+		customized.GET("/rules", h.GetSystemRules)
+		customized.PUT("/rules/:id", h.UpdateSystemRule)
+		
+		customized.GET("/config", h.GetIndustryConfig)
+		customized.PUT("/config", h.UpdateIndustryConfig)
 	}
 
 	// ── Batch Tracking — Kurir only ──────────────────────────────
