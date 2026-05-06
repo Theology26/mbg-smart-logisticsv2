@@ -91,7 +91,14 @@ import { Link, usePage } from '@inertiajs/vue3'
 import axios from 'axios'
 
 const page = usePage()
-const user = computed(() => page.props.auth?.user)
+const user = computed(() => {
+  const sessionUser = page.props.auth?.user
+  if (sessionUser) return sessionUser
+  
+  // Fallback to localStorage (Golang login)
+  const localUser = localStorage.getItem('mbg_user')
+  return localUser ? JSON.parse(localUser) : null
+})
 
 const systemStatus = ref({ osrm: false, ai: false })
 const currentTime = ref('')

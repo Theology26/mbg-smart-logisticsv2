@@ -70,22 +70,15 @@ logger.info("🔄 Loading PaddleOCR model (use_gpu=True)...")
 try:
     ocr_engine = PaddleOCR(
         use_angle_cls=True,
-        lang="id",          # Indonesian language
-        use_gpu=True,        # CRITICAL: GPU acceleration via CUDA
-        show_log=False,
-        det_db_thresh=0.3,   # Detection threshold tuned for receipt text
-        rec_batch_num=16,    # Batch size for recognition (fits in 8GB VRAM)
+        lang="id"
     )
-    logger.info("✅ PaddleOCR loaded successfully (GPU mode)")
+    logger.info("✅ PaddleOCR loaded successfully")
 except Exception as e:
-    logger.warning(f"⚠️  PaddleOCR GPU init failed, falling back to CPU: {e}")
+    logger.warning(f"⚠️  PaddleOCR init failed: {e}")
     ocr_engine = PaddleOCR(
-        use_angle_cls=True,
-        lang="id",
-        use_gpu=False,
-        show_log=False,
+        lang="id"
     )
-    logger.info("✅ PaddleOCR loaded (CPU fallback mode)")
+    logger.info("✅ PaddleOCR loaded (safe mode)")
 
 
 # ============================================================================
