@@ -79,11 +79,19 @@ func seedSQLite(db *gorm.DB) {
 	db.Model(&models.IndustryConfig{}).Count(&configCount)
 	if configCount == 0 {
 		db.Create(&models.IndustryConfig{
-			IndustryName: "MBG Smart Logistics",
+			IndustryName:     "MBG Smart Logistics",
 			DestinationLabel: "Sekolah",
-			ItemLabel: "Menu",
-			Currency: "IDR",
+			ItemLabel:        "Menu",
+			CompanyAddress:   "Jl. Raya MBG No. 123, Jakarta, Indonesia",
+			CompanyEmail:     "info@mbglogistics.com",
+			CompanyPhone:     "+62 812 3456 7890",
+			DefaultLat:       -6.2000,
+			DefaultLng:       106.8166,
+			DefaultZoom:      13,
+			Currency:         "IDR",
+			DistanceUnit:     "km",
+			WeightUnit:       "kg",
 		})
-		log.Println("🌱 Seeded default Industry Configuration")
+		log.Println("🌱 Seeded default Detailed Industry Configuration")
 	}
 }

@@ -75,12 +75,27 @@ func (SystemRule) TableName() string { return "system_rules" }
 
 // IndustryConfig stores global metadata for the system identity.
 type IndustryConfig struct {
-	ID             uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	IndustryName   string    `json:"industry_name" gorm:"type:varchar(100);default:'MBG Smart Logistics'"`
-	DestinationLabel string  `json:"destination_label" gorm:"type:varchar(50);default:'Sekolah'"`
-	ItemLabel       string   `json:"item_label" gorm:"type:varchar(50);default:'Menu'"`
-	Currency        string   `json:"currency" gorm:"type:varchar(10);default:'IDR'"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID               uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	IndustryName     string    `json:"industry_name" gorm:"type:varchar(100);default:'MBG Smart Logistics'"`
+	DestinationLabel string    `json:"destination_label" gorm:"type:varchar(50);default:'Sekolah'"`
+	ItemLabel         string    `json:"item_label" gorm:"type:varchar(50);default:'Menu'"`
+	
+	// Business Profile
+	CompanyAddress   string    `json:"company_address" gorm:"type:text"`
+	CompanyEmail     string    `json:"company_email" gorm:"type:varchar(100)"`
+	CompanyPhone     string    `json:"company_phone" gorm:"type:varchar(50)"`
+	
+	// Map Defaults
+	DefaultLat       float64   `json:"default_lat" gorm:"type:double;default:-6.2000"`
+	DefaultLng       float64   `json:"default_lng" gorm:"type:double;default:106.8166"`
+	DefaultZoom      int       `json:"default_zoom" gorm:"default:12"`
+	
+	// Preferences
+	Currency         string    `json:"currency" gorm:"type:varchar(10);default:'IDR'"`
+	DistanceUnit     string    `json:"distance_unit" gorm:"type:varchar(10);default:'km'"`
+	WeightUnit       string    `json:"weight_unit" gorm:"type:varchar(10);default:'kg'"`
+	
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 func (IndustryConfig) TableName() string { return "industry_config" }
