@@ -279,6 +279,9 @@ export default function TrackingScreen() {
       })) || []
 
       // Call Python A2C optimizer
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      
       const optimizeRes = await fetch(`${API_CONFIG.AI_SERVICE_URL}/routing/optimize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -290,8 +293,9 @@ export default function TrackingScreen() {
           max_time_minutes: 120,
           temperature: 28,
         }),
-        signal: AbortSignal.timeout(30000),
+        signal: controller.signal,
       })
+      clearTimeout(timeoutId);
 
       const optimizeData = await optimizeRes.json()
 

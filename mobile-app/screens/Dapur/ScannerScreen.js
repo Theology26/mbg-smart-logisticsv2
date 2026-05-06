@@ -93,6 +93,9 @@ export default function ScannerScreen() {
         name: 'nota_belanja.jpg',
       })
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.OCR_TIMEOUT_MS);
+
       const response = await fetch(`${API_CONFIG.AI_SERVICE_URL}/ocr/scan`, {
         method: 'POST',
         body: formData,
@@ -100,8 +103,9 @@ export default function ScannerScreen() {
           // Note: Do NOT set Content-Type manually for multipart — React Native handles it
           'Accept': 'application/json',
         },
-        signal: AbortSignal.timeout(API_CONFIG.OCR_TIMEOUT_MS),
+        signal: controller.signal,
       })
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const err = await response.json()
