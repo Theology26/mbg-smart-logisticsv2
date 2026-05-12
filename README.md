@@ -43,7 +43,7 @@ Sistem ini telah divalidasi melalui serangkaian pengujian empiris untuk persiapa
 
 ### 1. Routing Performance: Safety vs. Efficiency
 Agen AI kami sengaja mengorbankan jarak tempuh demi menjamin kesegaran makanan.
-![Routing Benchmark](./ieee_ors_benchmark.png)
+![Routing Benchmark](./ieee_ord_benchmark.png)
 
 *   **Hasil**: Peningkatan **76.9%** pada indeks kesegaran minimum dibandingkan metode *Greedy* konvensional.
 
