@@ -66,10 +66,11 @@ func autoMigrate(db *gorm.DB) {
 		&models.Schedule{},
 		&models.Delivery{},
 		&models.TrackingHistory{},
+		&models.Feedback{},
 	)
 	if err != nil {
 		log.Fatalf("❌ Auto-migration failed: %v", err)
 	}
 
-	log.Println("✅ Auto-migration completed (7 tables)")
+	log.Println("✅ Auto-migration completed (8 tables)")
 }

@@ -24,6 +24,7 @@ type User struct {
 	Email     string         `json:"email" gorm:"type:varchar(255);uniqueIndex;not null"`
 	Password  string         `json:"-" gorm:"type:varchar(255);not null"`
 	DapurID   *uint          `json:"dapur_id" gorm:"index;default:null"` // Multi-tenant: which MBG kitchen this user belongs to
+	SchoolID  *uint          `json:"school_id" gorm:"index;default:null"` // For Guru role: which school they belong to
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
@@ -38,6 +39,7 @@ type School struct {
 	Latitude       float64   `json:"latitude" gorm:"type:double;not null"`
 	Longitude      float64   `json:"longitude" gorm:"type:double;not null"`
 	DemandQuantity int       `json:"demand_quantity" gorm:"not null;default:0"`
+	DapurID        *uint     `json:"dapur_id" gorm:"index;default:null"` // Which SPPG kitchen serves this school
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
@@ -51,6 +53,7 @@ type Ingredient struct {
 	Quantity  float64    `json:"quantity" gorm:"type:double;not null;default:0"`
 	Unit      string     `json:"unit" gorm:"type:varchar(50);not null"`
 	ScannedAt *time.Time `json:"scanned_at" gorm:"type:datetime"`
+	DapurID   *uint      `json:"dapur_id" gorm:"index;default:null"` // Which SPPG kitchen owns this stock
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 }
@@ -79,13 +82,15 @@ func (Menu) TableName() string { return "menus" }
 // Schedule represents a cooking schedule with computed expiration.
 // EpsilonScore measures food spoilage urgency (higher = more urgent).
 type Schedule struct {
-	ID                    uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	MenuID                uint      `json:"menu_id" gorm:"not null;index"`
-	CookingCompletionTime time.Time `json:"cooking_completion_time" gorm:"type:datetime;not null"`
-	ExpirationTime        time.Time `json:"expiration_time" gorm:"type:datetime;not null"`
-	EpsilonScore          float64   `json:"epsilon_score" gorm:"type:double;not null;default:0"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
+	ID                    uint       `json:"id" gorm:"primaryKey;autoIncrement"`
+	MenuID                uint       `json:"menu_id" gorm:"not null;index"`
+	DapurID               *uint      `json:"dapur_id" gorm:"index;default:null"` // Added tenant isolation for schedules
+	IsCooked              bool       `json:"is_cooked" gorm:"not null;default:false"`
+	CookingCompletionTime *time.Time `json:"cooking_completion_time" gorm:"type:datetime"`
+	ExpirationTime        *time.Time `json:"expiration_time" gorm:"type:datetime"`
+	EpsilonScore          float64    `json:"epsilon_score" gorm:"type:double;not null;default:0"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
 
 	// Relations
 	Menu       *Menu      `json:"menu,omitempty" gorm:"foreignKey:MenuID"`
@@ -99,7 +104,7 @@ type Delivery struct {
 	ID                 uint       `json:"id" gorm:"primaryKey;autoIncrement"`
 	ScheduleID         uint       `json:"schedule_id" gorm:"not null;index"`
 	SchoolID           uint       `json:"school_id" gorm:"not null;index"`
-	CourierID          uint       `json:"courier_id" gorm:"not null;index"`
+	CourierID          *uint      `json:"courier_id" gorm:"index;default:null"`
 	Status             string     `json:"status" gorm:"type:enum('pending','in_transit','delivered','failed');not null;default:'pending'"`
 	ActualDeliveryTime *time.Time `json:"actual_delivery_time" gorm:"type:datetime"`
 	CreatedAt          time.Time  `json:"created_at"`
@@ -133,6 +138,32 @@ type TrackingHistory struct {
 }
 
 func (TrackingHistory) TableName() string { return "tracking_histories" }
+
+// GlobalSetting represents a dynamic system configuration for white-labeling.
+type GlobalSetting struct {
+	ID        uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	Key       string    `json:"key" gorm:"type:varchar(100);uniqueIndex;not null"`
+	Value     string    `json:"value" gorm:"type:text;not null"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (GlobalSetting) TableName() string { return "global_settings" }
+
+// Feedback represents a feedback entry submitted by a Guru.
+type Feedback struct {
+	ID        uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	GuruID    uint      `json:"guru_id" gorm:"not null;index"`
+	SchoolID  uint      `json:"school_id" gorm:"not null;index"`
+	DapurID   uint      `json:"dapur_id" gorm:"not null;index"`
+	Message   string    `json:"message" gorm:"type:text;not null"`
+	CreatedAt time.Time `json:"created_at"`
+	
+	Guru   *User   `json:"guru,omitempty" gorm:"foreignKey:GuruID"`
+	School *School `json:"school,omitempty" gorm:"foreignKey:SchoolID"`
+}
+
+func (Feedback) TableName() string { return "feedbacks" }
 
 // ============================================================================
 // Request/Response DTOs

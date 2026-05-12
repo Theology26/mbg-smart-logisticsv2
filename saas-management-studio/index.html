@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaaS Studio | Sparkling Cleaners Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Outfit', sans-serif; 
+            background-color: #f8fafc; /* Light Gray */
+            color: #1e293b; /* Dark Slate */
+        }
+        .studio-card { 
+            background: #ffffff; 
+            border: 1px solid #e2e8f0; 
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .studio-card:hover {
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        .input-field { 
+            background: #f1f5f9; 
+            border: 1px solid #e2e8f0; 
+            color: #1e293b;
+        }
+        .input-field:focus { 
+            background: #fff;
+            border-color: #3b82f6; 
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+        }
+        .cta-gold {
+            background-color: #fbbf24; /* Vibrant Yellow/Gold */
+            color: #1e3a8a; /* Dark Blue */
+        }
+        .cta-gold:hover {
+            background-color: #f59e0b;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- Navbar -->
+    <nav class="bg-white/80 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-600/30">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-slate-900 tracking-tight">SaaS Studio</h1>
+                    <p class="text-blue-600 text-[10px] font-bold uppercase tracking-[0.2em]">Management Interface</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div id="apiStatus" class="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    API ONLINE
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-5xl mx-auto px-6 py-12">
+        <header class="mb-16 text-center max-w-2xl mx-auto">
+            <h2 class="text-4xl font-extrabold text-slate-900 mb-4 tracking-tight">Sparkling Cleaners <span class="text-blue-600">Configurator</span></h2>
+            <p class="text-slate-500 text-lg">Exhaustive SaaS management for branding, logistics, and system parameters.</p>
+        </header>
+
+        <form id="configForm" class="space-y-12 pb-32">
+            <!-- Dynamic Sections -->
+            <div id="dynamicSections" class="space-y-12">
+                <!-- Skeleton Loader -->
+                <div class="space-y-6">
+                    <div class="h-6 w-32 bg-slate-200 rounded animate-pulse"></div>
+                    <div class="h-64 w-full bg-white rounded-3xl border border-slate-200 animate-pulse"></div>
+                </div>
+            </div>
+
+            <!-- Custom Parameter Adder -->
+            <div class="studio-card rounded-3xl p-8 border-dashed border-blue-200 bg-blue-50/30">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="p-2 bg-blue-100 rounded-lg text-blue-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                    </div>
+                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-widest">Add Custom Configuration</h3>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Parameter Key</label>
+                        <input type="text" id="newKey" placeholder="e.g. support_phone" 
+                            class="w-full input-field rounded-2xl px-5 py-4 outline-none text-sm transition-all">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Initial Value</label>
+                        <input type="text" id="newValue" placeholder="e.g. +62 811..." 
+                            class="w-full input-field rounded-2xl px-5 py-4 outline-none text-sm transition-all">
+                    </div>
+                </div>
+                <button type="button" id="addParamBtn" class="mt-8 font-bold text-sm bg-blue-600 text-white px-6 py-3 rounded-2xl hover:bg-blue-700 transition-all active:scale-95 shadow-lg shadow-blue-600/20">
+                    + Register Key
+                </button>
+            </div>
+        </form>
+    </main>
+
+    <!-- Floating Footer Action -->
+    <div class="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-2xl px-6 z-50">
+        <div class="bg-white/70 backdrop-blur-2xl p-4 rounded-3xl border border-white shadow-2xl flex items-center justify-between gap-6">
+            <div class="hidden md:block pl-4">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cloud Deployment</p>
+                <p class="text-xs text-slate-600">All clients will be updated instantly.</p>
+            </div>
+            <button type="submit" form="configForm" id="saveBtn" class="cta-gold flex-1 py-5 rounded-2xl font-black text-sm uppercase tracking-widest transition-all active:scale-95 shadow-xl shadow-amber-500/20">
+                Deploy Global Config
+            </button>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[100] hidden flex items-center justify-center p-6">
+        <div class="bg-white rounded-[40px] p-12 max-w-sm w-full text-center space-y-8 shadow-3xl">
+            <div class="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full mx-auto flex items-center justify-center text-4xl">✨</div>
+            <div class="space-y-2">
+                <h2 class="text-2xl font-black text-slate-900">Config Deployed</h2>
+                <p class="text-slate-500 text-sm leading-relaxed">Your SaaS environment has been polished and updated successfully.</p>
+            </div>
+            <button onclick="document.getElementById('successModal').classList.add('hidden')" class="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold text-sm tracking-wide">Awesome!</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

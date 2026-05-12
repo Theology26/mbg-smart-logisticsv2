@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   ActivityIndicator, Alert, Image, SafeAreaView, Platform,
-  FlatList,
+  FlatList, TextInput, Switch
 } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import * as ImagePicker from 'expo-image-picker'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRef } from 'react'
 import { API_CONFIG, STORAGE_KEYS } from '../../constants/config'
+import { useSettings } from '../../constants/SettingsContext'
 
 // ============================================================================
 // ScannerScreen — Dapur (Kitchen) Role
@@ -20,9 +21,10 @@ import { API_CONFIG, STORAGE_KEYS } from '../../constants/config'
 //   - OCR scan to add new ingredients from nota belanja
 // ============================================================================
 
-const TABS = ['Bahan & Menu', 'Scan Nota OCR']
+const TABS = ['Bahan & Rekomendasi', 'Scan Nota OCR', 'Buat Jadwal (Web)']
 
 export default function ScannerScreen() {
+  const { settings } = useSettings()
   const [tab, setTab] = useState(0)
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
 
@@ -41,9 +43,52 @@ export default function ScannerScreen() {
   const [flashOn, setFlashOn] = useState(false)
   const cameraRef = useRef(null)
 
+  const [manualMenu, setManualMenu] = useState('')
+  const [epsilonScore, setEpsilonScore] = useState(null)
+  const [epsLoading, setEpsLoading] = useState(false)
+  const [schools, setSchools] = useState([])
+  const [selectedSchools, setSelectedSchools] = useState([])
+  const [scheduleLoading, setScheduleLoading] = useState(false)
+
   useEffect(() => {
     fetchIngredients()
+    fetchSchools()
   }, [])
+
+  async function fetchSchools() {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_CONFIG.BACKEND_URL}/api/schools/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const data = await res.json()
+      setSchools(data.data || [])
+    } catch (e) { console.log(e) }
+  }
+
+  async function calculateEpsilonScore() {
+    if (!manualMenu) return Alert.alert('Info', 'Masukkan nama menu dulu')
+    setEpsLoading(true)
+    try {
+      const res = await fetch(`${API_CONFIG.AI_SERVICE_URL}/decision/calculate-epsilon`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ menu_name: manualMenu })
+      })
+      if (!res.ok) throw new Error('AI Server Error')
+      const data = await res.json()
+      setEpsilonScore(data)
+    } catch (e) {
+      Alert.alert('Gagal', e.message)
+    } finally {
+      setEpsLoading(false)
+    }
+  }
+
+  function toggleSchool(id) {
+    if (selectedSchools.includes(id)) setSelectedSchools(s => s.filter(x => x !== id))
+    else setSelectedSchools(s => [...s, id])
+  }
 
   async function getToken() {
     return await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
@@ -83,20 +128,26 @@ export default function ScannerScreen() {
       const names = ingredients.map(i => i.name)
       const ctrl = new AbortController()
       const tid = setTimeout(() => ctrl.abort(), API_CONFIG.DEFAULT_TIMEOUT_MS)
-      const res = await fetch(`${API_CONFIG.BACKEND_URL}/api/menu/recommend/`, {
+      const res = await fetch(`${API_CONFIG.AI_SERVICE_URL}/decision/suggest-menu`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          available_ingredients: names,
-          student_count: 100,
-          preferences: 'Bergizi, seimbang, cocok untuk anak SD, tidak terlalu pedas',
+          ingredients: ingredients,
         }),
         signal: ctrl.signal,
       })
       clearTimeout(tid)
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
-      setMenuRecs(data.data)
+      setMenuRecs({
+        recommendations: [{
+          name: data.suggested_menu,
+          reasoning: data.reasoning,
+          category: 'Basah', // Default assumption
+          shelf_life_estimate: 'Cepat Basi (Urgensi Tinggi)',
+          ingredients: 'Bahan Berisiko Tinggi'
+        }]
+      })
     } catch (e) {
       Alert.alert('Gagal', e.name === 'AbortError' ? 'Server tidak merespons (timeout).' : e.message)
     } finally {
@@ -139,7 +190,7 @@ export default function ScannerScreen() {
 
       const ctrl = new AbortController()
       const tid = setTimeout(() => ctrl.abort(), API_CONFIG.OCR_TIMEOUT_MS)
-      const res = await fetch(`${API_CONFIG.AI_SERVICE_URL}/ocr/scan/`, {
+      const res = await fetch(`${API_CONFIG.AI_SERVICE_URL}/vision/analyze/`, {
         method: 'POST',
         body: formData,
         headers: { Accept: 'application/json' },
@@ -168,17 +219,33 @@ export default function ScannerScreen() {
     setSaveLoading(true)
     try {
       const token = await getToken()
-      const promises = ocrResult.ingredients.map(item =>
-        fetch(`${API_CONFIG.BACKEND_URL}/api/ingredients/`, {
+      const promises = ocrResult.ingredients.map(item => {
+        // Parse "1 kg" -> 1 (quantity), "kg" (unit)
+        let qty = 1
+        let unit = "pcs"
+        
+        if (item.quantity) {
+          const qtyStr = String(item.quantity).trim().toLowerCase()
+          const match = qtyStr.match(/([\d\.,]+)\s*([a-z]+)/)
+          
+          if (match) {
+            qty = parseFloat(match[1].replace(',', '.'))
+            unit = match[2]
+          } else {
+            qty = parseFloat(qtyStr) || 1
+          }
+        }
+
+        return fetch(`${API_CONFIG.BACKEND_URL}/api/ingredients/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
             name: item.name,
-            quantity: item.quantity || 1,
-            unit: item.unit || 'pcs',
+            quantity: qty,
+            unit: unit,
           }),
         })
-      )
+      })
       await Promise.all(promises)
       Alert.alert('Berhasil!', `${ocrResult.ingredients.length} bahan berhasil disimpan ke database.`)
       await fetchIngredients()  // Refresh ingredient list
@@ -199,17 +266,19 @@ export default function ScannerScreen() {
   function renderIngredientsTab() {
     return (
       <ScrollView contentContainerStyle={st.tabContent}>
-        {/* Recommend Button */}
-        <TouchableOpacity
-          style={[st.btnRec, recLoading && st.btnDis]}
-          onPress={recommendMenuFromDB}
-          disabled={recLoading}
-          activeOpacity={0.8}
-        >
-          {recLoading
-            ? <><ActivityIndicator color="#fff" size="small" /><Text style={[st.btnTxt, { marginLeft: 10 }]}>AI sedang berpikir...</Text></>
-            : <Text style={st.btnTxt}>✨ Rekomendasikan Menu dari {ingredients.length} Bahan</Text>}
-        </TouchableOpacity>
+        {/* Recommend Button - Hidden if disabled in SaaS settings */}
+        {settings.enable_ai_menu === 'true' && (
+          <TouchableOpacity
+            style={[st.btnRec, { backgroundColor: settings.theme_color }, recLoading && st.btnDis]}
+            onPress={recommendMenuFromDB}
+            disabled={recLoading}
+            activeOpacity={0.8}
+          >
+            {recLoading
+              ? <><ActivityIndicator color="#fff" size="small" /><Text style={[st.btnTxt, { marginLeft: 10 }]}>AI sedang berpikir...</Text></>
+              : <Text style={st.btnTxt}>✨ Rekomendasikan Menu dari {ingredients.length} Bahan</Text>}
+          </TouchableOpacity>
+        )}
 
         {/* Menu Recommendations */}
         {menuRecs && (
@@ -230,6 +299,12 @@ export default function ScannerScreen() {
                 </View>
               )
             })}
+            <TouchableOpacity 
+              style={[st.btnPri, { marginTop: 10, backgroundColor: '#10b981' }]} 
+              onPress={() => confirmCookingDone(menuRecs.recommendations[0].name)}
+            >
+              <Text style={st.btnTxt}>✅ Konfirmasi Masakan Matang</Text>
+            </TouchableOpacity>
             {menuRecs.notes && <Text style={st.note}>{menuRecs.notes}</Text>}
           </View>
         )}
@@ -380,12 +455,132 @@ export default function ScannerScreen() {
         </TouchableOpacity>
 
         <View style={st.aiInfoBox}>
-          <Text style={st.aiInfoTitle}>🤖 AI Service (PaddleOCR)</Text>
-          <Text style={st.aiInfoUrl}>{API_CONFIG.AI_SERVICE_URL}/ocr/scan/</Text>
-          <Text style={st.aiInfoNote}>Pastikan AI service berjalan di laptop pada port 9000</Text>
+          <Text style={st.aiInfoTitle}>🤖 AI Service (LLaMA 3.2 Vision)</Text>
+          <Text style={st.aiInfoUrl}>{API_CONFIG.AI_SERVICE_URL}/vision/analyze/</Text>
+          <Text style={st.aiInfoNote}>Membutuhkan koneksi ke NVIDIA NIM (Llama Vision)</Text>
         </View>
       </ScrollView>
     )
+  }
+
+  // ── Selesai Masak ──────────────────────────────────────────
+  }
+
+  // ── TAB 2: Buat Jadwal (Web Sync) ──────────────────────────
+  function renderScheduleTab() {
+    return (
+      <ScrollView contentContainerStyle={st.tabContent}>
+        <View style={st.section}>
+          <Text style={st.sectionTitle}>1. Input Menu Masakan</Text>
+          <TextInput 
+            style={st.input}
+            placeholder="Contoh: Ayam Goreng Mentega"
+            placeholderTextColor="#6b7280"
+            value={manualMenu}
+            onChangeText={setManualMenu}
+          />
+          <TouchableOpacity 
+            style={[st.btnSec, { marginTop: 10, borderColor: '#3b82f6' }]} 
+            onPress={calculateEpsilonScore}
+            disabled={epsLoading}
+          >
+            {epsLoading ? <ActivityIndicator color="#3b82f6" /> : <Text style={[st.btnSecTxt, { color: '#3b82f6' }]}>🤖 Tanya Nemotron (Cek Skor Basi)</Text>}
+          </TouchableOpacity>
+
+          {epsilonScore && (
+            <View style={st.epsBox}>
+              <Text style={st.epsTitle}>Kategori: {epsilonScore.category}</Text>
+              <Text style={st.epsScore}>Urgensi: {(epsilonScore.epsilon_score * 100).toFixed(0)}% (Makin tinggi makin cepat basi)</Text>
+              <Text style={st.epsReason}>{epsilonScore.reasoning}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={st.section}>
+          <Text style={st.sectionTitle}>2. Pilih Sekolah Tujuan</Text>
+          {schools.map(s => (
+            <TouchableOpacity key={s.id} style={st.schoolRow} onPress={() => toggleSchool(s.id)}>
+              <View style={[st.checkbox, selectedSchools.includes(s.id) && st.checkboxActive]} />
+              <Text style={st.schoolName}>{s.name} ({s.demand} porsi)</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={[st.section, { marginTop: 20 }]}>
+          <Text style={st.sectionTitle}>3. Aksi Jadwal</Text>
+          <TouchableOpacity 
+            style={[st.btnPri, { backgroundColor: '#f59e0b', marginBottom: 10 }]} 
+            onPress={() => submitSchedule(false)}
+            disabled={scheduleLoading}
+          >
+            <Text style={st.btnTxt}>⏳ Simpan (Persiapan Masak)</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[st.btnPri, { backgroundColor: '#10b981' }]} 
+            onPress={() => submitSchedule(true)}
+            disabled={scheduleLoading}
+          >
+            <Text style={st.btnTxt}>✅ Selesai Masak & Mulai AI Routing</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    )
+  }
+
+  async function submitSchedule(isCooked) {
+    if (!manualMenu) return Alert.alert('Error', 'Input nama menu dulu.')
+    if (selectedSchools.length === 0) return Alert.alert('Error', 'Pilih minimal 1 sekolah.')
+    setScheduleLoading(true)
+    try {
+      const token = await getToken()
+      // 1. Buat Menu
+      const menuRes = await fetch(`${API_CONFIG.BACKEND_URL}/api/menus/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ 
+          name: manualMenu, 
+          category: epsilonScore?.category || 'Basah', 
+          ingredients_required: 'Manual Input' 
+        })
+      })
+      const menuData = await menuRes.json()
+
+      // 2. Buat Jadwal
+      const schedRes = await fetch(`${API_CONFIG.BACKEND_URL}/api/schedules/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ 
+          menu_id: menuData.data.id, 
+          is_cooked: isCooked, 
+          cooking_completion_time: isCooked ? new Date().toISOString() : null 
+        })
+      })
+      const schedData = await schedRes.json()
+
+      // 3. Buat Deliveries
+      await Promise.all(selectedSchools.map(schoolId => 
+        fetch(`${API_CONFIG.BACKEND_URL}/api/deliveries/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            schedule_id: schedData.data.id,
+            school_id: schoolId,
+            status: 'PENDING'
+          })
+        })
+      ))
+
+      Alert.alert('Sukses', isCooked ? 'Masakan Matang! Kurir akan di-routing oleh AI A2C sekarang.' : 'Jadwal persiapan berhasil disimpan.')
+      setManualMenu('')
+      setSelectedSchools([])
+      setEpsilonScore(null)
+      setTab(0)
+    } catch(e) {
+      Alert.alert('Gagal', e.message)
+    } finally {
+      setScheduleLoading(false)
+    }
   }
 
   return (
@@ -401,7 +596,9 @@ export default function ScannerScreen() {
 
       {/* Content */}
       <View style={{ flex: 1 }}>
-        {tab === 0 ? renderIngredientsTab() : renderScanTab()}
+        {tab === 0 && renderIngredientsTab()}
+        {tab === 1 && renderScanTab()}
+        {tab === 2 && renderScheduleTab()}
       </View>
     </SafeAreaView>
   )
@@ -494,4 +691,15 @@ const st = StyleSheet.create({
   scanHomeIcon: { fontSize: 48 },
   scanHomeTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
   scanHomeSub: { color: '#6b7280', fontSize: 13, textAlign: 'center' },
+
+  // Schedule Tab
+  input: { backgroundColor: '#0f1827', borderWidth: 1, borderColor: '#1f2937', color: '#fff', borderRadius: 12, padding: 14, fontSize: 14 },
+  epsBox: { backgroundColor: '#1e293b', padding: 12, borderRadius: 12, marginTop: 10, borderWidth: 1, borderColor: '#3b82f6' },
+  epsTitle: { color: '#60a5fa', fontWeight: 'bold' },
+  epsScore: { color: '#fbbf24', fontSize: 13, marginVertical: 4 },
+  epsReason: { color: '#9ca3af', fontSize: 12, fontStyle: 'italic' },
+  schoolRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f1827', padding: 12, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: '#1f2937' },
+  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: '#4b5563', marginRight: 12 },
+  checkboxActive: { backgroundColor: '#22c55e', borderColor: '#22c55e' },
+  schoolName: { color: '#f3f4f6', fontSize: 14 }
 })

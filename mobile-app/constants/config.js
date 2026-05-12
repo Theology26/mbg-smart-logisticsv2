@@ -4,9 +4,9 @@
 
 export const API_CONFIG = {
   // Golang backend
-  BACKEND_URL: 'http://10.40.47.159:8080',      // ← Your Laptop's IP
+  BACKEND_URL: 'http://192.168.18.38:8080',      // ← Your Laptop's IP
   // Python AI service
-  AI_SERVICE_URL: 'http://10.40.47.159:9000',   // ← Your Laptop's IP
+  AI_SERVICE_URL: 'http://192.168.18.38:9000',   // ← Your Laptop's IP
 
   // Timeouts
   DEFAULT_TIMEOUT_MS: 30000,

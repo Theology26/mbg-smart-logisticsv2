@@ -1,9 +1,9 @@
 <template>
-  <div class="min-h-screen bg-gray-950 font-sans">
+  <div class="min-h-screen bg-slate-50 font-sans transition-colors duration-300">
     <!-- Sidebar Navigation -->
-    <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
+    <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 flex flex-col shadow-sm">
       <!-- Logo -->
-      <div class="flex items-center gap-3 px-6 py-5 border-b border-gray-800">
+      <div class="flex items-center gap-3 px-6 py-5 border-b border-slate-200">
         <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center">
           <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -11,20 +11,20 @@
           </svg>
         </div>
         <div>
-          <p class="text-white font-semibold text-sm leading-tight">{{ industryConfig.industry_name }}</p>
-          <p class="text-gray-400 text-xs">Smart Distribution Platform</p>
+          <p class="text-slate-900 font-bold text-sm leading-tight">{{ globalSettings.app_name }}</p>
+          <p class="text-slate-500 text-[10px] uppercase tracking-wider font-medium">Smart Distribution</p>
         </div>
       </div>
 
       <!-- User Info -->
-      <div class="px-4 py-3 border-b border-gray-800">
-        <div class="flex items-center gap-3 px-2 py-2 rounded-lg bg-gray-800">
-          <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold">
+      <div class="px-4 py-4 border-b border-slate-100">
+        <div class="flex items-center gap-3 px-3 py-3 rounded-2xl bg-slate-50 border border-slate-200">
+          <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white text-xs font-black shadow-lg shadow-blue-600/20">
             {{ userInitials }}
           </div>
           <div class="flex-1 min-w-0">
-            <p class="text-white text-xs font-medium truncate">{{ user?.name }}</p>
-            <span :class="roleBadgeClass" class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium">
+            <p class="text-slate-900 text-xs font-bold truncate">{{ user?.name }}</p>
+            <span :class="roleBadgeClass" class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
               {{ user?.role }}
             </span>
           </div>
@@ -32,23 +32,23 @@
       </div>
 
       <!-- Navigation Links -->
-      <nav class="flex-1 px-3 py-4 space-y-1">
+      <nav class="flex-1 px-4 py-6 space-y-2">
         <Link v-for="item in navItems" :key="item.href" :href="item.href"
           :class="[
-            'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150',
+            'flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-200',
             $page.url === item.href
-              ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-              : 'text-gray-400 hover:text-white hover:bg-gray-800'
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 active:scale-95'
+              : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
           ]">
-          <span class="text-base">{{ item.icon }}</span>
+          <span class="text-lg">{{ item.icon }}</span>
           {{ item.label }}
         </Link>
       </nav>
 
       <!-- Logout -->
-      <div class="px-3 py-4 border-t border-gray-800">
+      <div class="px-4 py-6 border-t border-slate-100">
         <button @click="logout"
-          class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-red-400/10 transition-all duration-150">
+          class="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all">
           <span>🚪</span> Keluar
         </button>
       </div>
@@ -57,23 +57,25 @@
     <!-- Main Content -->
     <div class="pl-64">
       <!-- Top Bar -->
-      <header class="sticky top-0 z-40 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-6 py-3 flex items-center justify-between">
-        <h1 class="text-white font-semibold">{{ $page.props.pageTitle || 'Dashboard' }}</h1>
+      <header class="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-5 flex items-center justify-between">
+        <h1 class="text-slate-900 text-xl font-black tracking-tight">{{ $page.props.pageTitle || 'Dashboard' }}</h1>
         <div class="flex items-center gap-3">
-          <!-- OSRM Status -->
-          <div class="flex items-center gap-1.5 text-xs text-gray-400">
-            <span :class="systemStatus.osrm ? 'bg-green-400' : 'bg-red-400'"
-              class="w-2 h-2 rounded-full animate-pulse"></span>
-            OSRM
+          <div class="flex items-center gap-4">
+            <!-- OSRM Status -->
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-500">
+              <span :class="systemStatus.osrm ? 'bg-emerald-500' : 'bg-red-500'"
+                class="w-2 h-2 rounded-full shadow-sm"></span>
+              OSRM
+            </div>
+            <!-- AI Status -->
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-500">
+              <span :class="systemStatus.ai ? 'bg-emerald-500' : 'bg-red-500'"
+                class="w-2 h-2 rounded-full shadow-sm"></span>
+              AI
+            </div>
+            <span class="text-slate-200">|</span>
+            <span class="text-slate-900 font-black text-sm">{{ currentTime }}</span>
           </div>
-          <!-- AI Status -->
-          <div class="flex items-center gap-1.5 text-xs text-gray-400">
-            <span :class="systemStatus.ai ? 'bg-green-400' : 'bg-red-400'"
-              class="w-2 h-2 rounded-full animate-pulse"></span>
-            AI
-          </div>
-          <span class="text-gray-600">|</span>
-          <span class="text-gray-400 text-xs">{{ currentTime }}</span>
         </div>
       </header>
 
@@ -102,10 +104,10 @@ const user = computed(() => {
 
 const systemStatus = ref({ osrm: false, ai: false })
 const currentTime = ref('')
-const industryConfig = ref({
-  industry_name: 'MBG Logistics',
-  destination_label: 'Sekolah',
-  item_label: 'Menu'
+const globalSettings = ref({
+  app_name: 'MBG Logistics',
+  theme_color: '#3b82f6',
+  enable_ai_menu: 'true'
 })
 
 // Role badge styling
@@ -127,12 +129,11 @@ const navItems = computed(() => {
   const role = user.value?.role
   const items = [
     { href: '/dashboard', icon: '🏠', label: 'Dashboard', roles: ['admin', 'guru', 'dapur', 'kurir'] },
-    { href: '/dashboard/map', icon: '🗺️', label: `Peta ${industryConfig.value.destination_label}`, roles: ['admin', 'guru'] },
-    { href: '/dashboard/schedules', icon: '📅', label: `Jadwal ${industryConfig.value.item_label}`, roles: ['admin', 'dapur'] },
+    { href: '/dashboard/map', icon: '🗺️', label: 'Peta Lokasi', roles: ['admin', 'guru'] },
+    { href: '/dashboard/schedules', icon: '📅', label: 'Jadwal Produksi', roles: ['admin', 'dapur'] },
     { href: '/dashboard/deliveries', icon: '🚚', label: 'Pengiriman', roles: ['admin', 'kurir'] },
-    { href: '/dashboard/schools', icon: '🏫', label: industryConfig.value.destination_label, roles: ['admin', 'guru'] },
-    { href: '/dashboard/ingredients', icon: '🥘', label: `Daftar ${industryConfig.value.item_label}`, roles: ['admin', 'dapur'] },
-    { href: '/studio', icon: '🎨', label: 'Customizer Studio', roles: ['admin'] },
+    { href: '/dashboard/schools', icon: '🏫', label: 'Daftar Sekolah', roles: ['admin', 'guru'] },
+    { href: '/dashboard/ingredients', icon: '🥘', label: 'Stok Bahan', roles: ['admin', 'dapur'] },
   ]
   return items.filter(item => item.roles.includes(role))
 })
@@ -143,14 +144,16 @@ onMounted(() => {
   updateTime()
   clockInterval = setInterval(updateTime, 1000)
   checkSystemStatus()
-  fetchIndustryConfig()
+  fetchGlobalSettings()
 })
 onUnmounted(() => clearInterval(clockInterval))
 
-async function fetchIndustryConfig() {
+async function fetchGlobalSettings() {
   try {
-    const res = await axios.get('/api/customized/config')
-    industryConfig.value = res.data.data
+    const res = await axios.get('/api/settings')
+    globalSettings.value = res.data.data
+    // Inject theme color into CSS
+    document.documentElement.style.setProperty('--theme-primary', globalSettings.value.theme_color)
   } catch {}
 }
 

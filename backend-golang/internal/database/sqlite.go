@@ -43,6 +43,7 @@ func autoMigrateSQLite(db *gorm.DB) {
 		&models.SystemRule{},
 		&models.IndustryConfig{},
 		&models.CustomLabel{},
+		&models.GlobalSetting{},
 	)
 	if err != nil {
 		log.Fatalf("❌ SQLite auto-migration failed: %v", err)
@@ -104,5 +105,26 @@ func seedSQLite(db *gorm.DB) {
 		db.Create(&models.CustomLabel{LabelKey: "Item_Label", LabelValue: "Menu", Category: "General"})
 		db.Create(&models.CustomLabel{LabelKey: "Delivery_Label", LabelValue: "Pengiriman", Category: "General"})
 		log.Println("🌱 Seeded default Custom Labels")
+	}
+
+	// Seed Global Settings (White-labeling)
+	var settingsCount int64
+	db.Model(&models.GlobalSetting{}).Count(&settingsCount)
+	if settingsCount == 0 {
+		settings := []models.GlobalSetting{
+			{Key: "app_name", Value: "MBG Smart Logistics"},
+			{Key: "theme_color", Value: "#3b82f6"},
+			{Key: "enable_ai_menu", Value: "true"},
+			{Key: "delivery_radius_km", Value: "15"},
+			{Key: "company_logo_url", Value: "https://via.placeholder.com/150"},
+			{Key: "currency_symbol", Value: "Rp"},
+			{Key: "contact_email", Value: "admin@mbg-saas.com"},
+			{Key: "map_center_lat", Value: "-7.9839"},
+			{Key: "map_center_lng", Value: "112.6214"},
+			{Key: "max_courier_load_kg", Value: "50"},
+			{Key: "strict_expiration_mode", Value: "true"},
+		}
+		db.Create(&settings)
+		log.Println("🌱 Seeded exhaustive Global Settings in SQLite")
 	}
 }

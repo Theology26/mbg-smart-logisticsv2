@@ -1,0 +1,70 @@
+{
+  "meta": {
+    "generated_at": "2026-05-12T19:41:34.900326",
+    "data_source": "OpenRouteService Matrix API (Live)",
+    "scoring_formula": "Score = (1/distance_m) + (1000/urgency_min)"
+  },
+  "ai_route": {
+    "method": "MBG AI A2C Inverse Urgency",
+    "total_distance_km": 19.6951,
+    "total_time_min": 56.8,
+    "min_freshness": 0.7634,
+    "stops": [
+      {
+        "order": 1,
+        "school_id": "S5",
+        "school_name": "SDN Purwantoro 1",
+        "coords": [
+          112.642,
+          -7.952
+        ],
+        "arrival_min": 11.33,
+        "freshness": 0.8111
+      },
+      {
+        "order": 2,
+        "school_id": "S4",
+        "school_name": "SDN Kiduldalem 1",
+        "coords": [
+          112.6315,
+          -7.982
+        ],
+        "arrival_min": 24.74,
+        "freshness": 0.8351
+      },
+      {
+        "order": 3,
+        "school_id": "S2",
+        "school_name": "SDN Rampal Celaket 1",
+        "coords": [
+          112.631,
+          -7.963
+        ],
+        "arrival_min": 34.88,
+        "freshness": 0.8062
+      },
+      {
+        "order": 4,
+        "school_id": "S3",
+        "school_name": "SDN Klojen",
+        "coords": [
+          112.633,
+          -7.975
+        ],
+        "arrival_min": 45.18,
+        "freshness": 0.7741
+      },
+      {
+        "order": 5,
+        "school_id": "S1",
+        "school_name": "SDK Cor Jesu",
+        "coords": [
+          112.6295,
+          -7.969
+        ],
+        "arrival_min": 56.8,
+        "freshness": 0.7634
+      }
+    ]
+  }
+}

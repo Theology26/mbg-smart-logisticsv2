@@ -96,7 +96,7 @@ const getHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('mbg_t
 async function fetchSchools() {
   loading.value = true
   try {
-    const res = await axios.get(`${API_BASE_URL}/schools/`, { headers: getHeaders() })
+    const res = await axios.get(`${API_BASE_URL}/schools`, { headers: getHeaders() })
     schools.value = res.data.data || []
   } catch (err) {
     console.error('Fetch error:', err)
@@ -107,7 +107,7 @@ async function fetchSchools() {
 
 async function saveSchool() {
   try {
-    const url = editingId.value ? `${API_BASE_URL}/schools/${editingId.value}/` : `${API_BASE_URL}/schools/`
+    const url = editingId.value ? `${API_BASE_URL}/schools/${editingId.value}` : `${API_BASE_URL}/schools`
     const method = editingId.value ? 'put' : 'post'
     await axios[method](url, form.value, { headers: getHeaders() })
     await fetchSchools()
@@ -118,7 +118,7 @@ async function saveSchool() {
 async function deleteSchool(id) {
   if (!confirm('Hapus?')) return
   try {
-    await axios.delete(`${API_BASE_URL}/schools/${id}/`, { headers: getHeaders() })
+    await axios.delete(`${API_BASE_URL}/schools/${id}`, { headers: getHeaders() })
     await fetchSchools()
   } catch (err) { alert('Gagal hapus') }
 }

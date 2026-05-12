@@ -39,8 +39,10 @@ export default function LoginScreen({ navigation }) {
           navigation.replace('ScannerScreen'); // Adjust based on your actual Navigator route name
         } else if (role === 'kurir') {
           navigation.replace('TrackingScreen');
+        } else if (role === 'guru') {
+          navigation.replace('GuruScreen');
         } else {
-          Alert.alert('Akses Ditolak', 'Aplikasi ini hanya untuk Kurir dan Dapur.');
+          Alert.alert('Akses Ditolak', 'Aplikasi ini hanya untuk Kurir, Dapur, dan Guru.');
         }
       } else {
         Alert.alert('Login Gagal', data.message || 'Email atau password salah.');

@@ -35,11 +35,7 @@ Route::get('/dashboard/ingredients', function () {
     return Inertia::render('Dashboard/Ingredients');
 })->name('ingredients');
 
-Route::get('/dashboard/customization', function () {
-    return Inertia::render('Dashboard/Customization');
-})->name('customization');
-
-Route::get('/studio', function () {
-    return Inertia::render('Dashboard/Studio');
-})->name('studio');
+Route::get('/dashboard/settings', function () {
+    return Inertia::render('Admin/SuperAdminConfig');
+})->name('settings');
 

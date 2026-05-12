@@ -131,8 +131,19 @@ func (h *Handler) Register(c *gin.Context) {
 // ============================================================================
 
 func (h *Handler) GetSchools(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	var user models.User
+	if err := h.DB.First(&user, "id = ?", userID).Error; err != nil {
+		JSON(c, 401, "User not found", nil)
+		return
+	}
+
 	var schools []models.School
-	h.DB.Order("name ASC").Find(&schools)
+	query := h.DB.Order("name ASC")
+	if user.Role != "admin" && user.DapurID != nil {
+		query = query.Where("dapur_id = ?", *user.DapurID)
+	}
+	query.Find(&schools)
 	JSON(c, 200, "Schools retrieved", schools)
 }
 
@@ -141,6 +152,13 @@ func (h *Handler) CreateSchool(c *gin.Context) {
 	if err := c.ShouldBindJSON(&school); err != nil {
 		JSON(c, 400, "Invalid request: "+err.Error(), nil)
 		return
+	}
+	// Scope to caller's dapur if they have one
+	userID, _ := c.Get("user_id")
+	var user models.User
+	h.DB.First(&user, "id = ?", userID)
+	if user.DapurID != nil && school.DapurID == nil {
+		school.DapurID = user.DapurID
 	}
 	h.DB.Create(&school)
 	JSON(c, 201, "School created", school)
@@ -163,6 +181,18 @@ func (h *Handler) UpdateSchool(c *gin.Context) {
 
 func (h *Handler) DeleteSchool(c *gin.Context) {
 	id := c.Param("id")
+	// Verify school belongs to user's tenant
+	userID, _ := c.Get("user_id")
+	var user models.User
+	h.DB.First(&user, "id = ?", userID)
+	if user.Role != "admin" && user.DapurID != nil {
+		var count int64
+		h.DB.Model(&models.School{}).Where("id = ? AND dapur_id = ?", id, *user.DapurID).Count(&count)
+		if count == 0 {
+			JSON(c, 403, "Cannot delete school outside your tenant", nil)
+			return
+		}
+	}
 	h.DB.Delete(&models.School{}, id)
 	JSON(c, 200, "School deleted", nil)
 }
@@ -172,8 +202,19 @@ func (h *Handler) DeleteSchool(c *gin.Context) {
 // ============================================================================
 
 func (h *Handler) GetIngredients(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	var user models.User
+	if err := h.DB.First(&user, "id = ?", userID).Error; err != nil {
+		JSON(c, 401, "User not found", nil)
+		return
+	}
+
 	var items []models.Ingredient
-	h.DB.Order("name ASC").Find(&items)
+	query := h.DB.Order("name ASC")
+	if user.Role != "admin" && user.DapurID != nil {
+		query = query.Where("dapur_id = ?", *user.DapurID)
+	}
+	query.Find(&items)
 	JSON(c, 200, "Ingredients retrieved", items)
 }
 
@@ -183,8 +224,31 @@ func (h *Handler) CreateIngredient(c *gin.Context) {
 		JSON(c, 400, "Invalid request: "+err.Error(), nil)
 		return
 	}
+	userID, _ := c.Get("user_id")
+	var user models.User
+	h.DB.First(&user, "id = ?", userID)
+	if user.DapurID != nil {
+		item.DapurID = user.DapurID
+	}
 	h.DB.Create(&item)
 	JSON(c, 201, "Ingredient created", item)
+}
+
+func (h *Handler) DeleteIngredient(c *gin.Context) {
+	id := c.Param("id")
+	userID, _ := c.Get("user_id")
+	var user models.User
+	h.DB.First(&user, "id = ?", userID)
+	if user.DapurID != nil {
+		var count int64
+		h.DB.Model(&models.Ingredient{}).Where("id = ? AND dapur_id = ?", id, *user.DapurID).Count(&count)
+		if count == 0 {
+			JSON(c, 403, "Cannot delete ingredient outside your tenant", nil)
+			return
+		}
+	}
+	h.DB.Delete(&models.Ingredient{}, id)
+	JSON(c, 200, "Ingredient deleted", nil)
 }
 
 // ============================================================================
@@ -212,8 +276,19 @@ func (h *Handler) CreateMenu(c *gin.Context) {
 // ============================================================================
 
 func (h *Handler) GetSchedules(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	var user models.User
+	if err := h.DB.First(&user, "id = ?", userID).Error; err != nil {
+		JSON(c, 401, "User not found", nil)
+		return
+	}
+
 	var schedules []models.Schedule
-	h.DB.Preload("Menu").Order("cooking_completion_time DESC").Find(&schedules)
+	query := h.DB.Preload("Menu").Order("cooking_completion_time DESC")
+	if user.Role != "admin" && user.DapurID != nil {
+		query = query.Where("dapur_id = ?", *user.DapurID)
+	}
+	query.Find(&schedules)
 	JSON(c, 200, "Schedules retrieved", schedules)
 }
 
@@ -238,16 +313,70 @@ func (h *Handler) CreateSchedule(c *gin.Context) {
 		rule = models.SystemRule{UrgencyFactor: 0.5, ExpiryHours: 6}
 	}
 
+	var cookTime time.Time
+	if schedule.CookingCompletionTime != nil {
+		cookTime = *schedule.CookingCompletionTime
+		schedule.IsCooked = true
+	} else {
+		cookTime = time.Now() // placeholder if not cooked
+	}
+
 	// Calculate expiration using the dynamic parameters
-	result := expiration.CalculateExpiration(menu.Category, schedule.CookingCompletionTime, 28.0, rule.ExpiryHours, rule.UrgencyFactor)
-	schedule.ExpirationTime = result.ExpirationTime
+	result := expiration.CalculateExpiration(menu.Category, cookTime, 28.0, rule.ExpiryHours, rule.UrgencyFactor)
+	if schedule.IsCooked {
+		schedule.ExpirationTime = &result.ExpirationTime
+	} else {
+		schedule.ExpirationTime = nil
+	}
 	schedule.EpsilonScore = result.EpsilonScore
+	
+	userID, _ := c.Get("user_id")
+	var user models.User
+	h.DB.First(&user, "id = ?", userID)
+	if user.DapurID != nil {
+		schedule.DapurID = user.DapurID
+	}
 
 	h.DB.Create(&schedule)
 	JSON(c, 201, "Operation created with AI optimization", gin.H{
 		"schedule":   schedule,
 		"expiration": result,
 	})
+}
+
+func (h *Handler) UpdateSchedule(c *gin.Context) {
+	id := c.Param("id")
+	var schedule models.Schedule
+	if err := h.DB.First(&schedule, id).Error; err != nil {
+		JSON(c, 404, "Schedule not found", nil)
+		return
+	}
+
+	var req struct {
+		IsCooked              bool       `json:"is_cooked"`
+		CookingCompletionTime *time.Time `json:"cooking_completion_time"`
+		ExpirationTime        *time.Time `json:"expiration_time"`
+		EpsilonScore          float64    `json:"epsilon_score"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	schedule.IsCooked = req.IsCooked
+	if req.CookingCompletionTime != nil {
+		schedule.CookingCompletionTime = req.CookingCompletionTime
+	}
+	if req.ExpirationTime != nil {
+		schedule.ExpirationTime = req.ExpirationTime
+	}
+	if req.EpsilonScore > 0 {
+		schedule.EpsilonScore = req.EpsilonScore
+	}
+
+	h.DB.Save(&schedule)
+	JSON(c, 200, "Schedule updated", schedule)
 }
 
 // ============================================================================
@@ -297,11 +426,17 @@ func (h *Handler) GetDeliveries(c *gin.Context) {
 	query := h.DB.Preload("Schedule.Menu").Preload("School").Preload("Courier").Order("created_at DESC")
 
 	// Kurir: only see their own deliveries
-	if courierID, exists := c.Get("user_id"); exists {
+	if userID, exists := c.Get("user_id"); exists {
 		if role, _ := c.Get("role"); role == "kurir" {
-			query = query.Where("courier_id = ?", courierID)
-		} else if role == "admin" {
-			// Admin: only see deliveries belonging to couriers in their dapur
+			query = query.Where("courier_id = ?", userID)
+		} else if role == "guru" {
+			var guru models.User
+			h.DB.First(&guru, "id = ?", userID)
+			if guru.SchoolID != nil {
+				query = query.Where("school_id = ?", *guru.SchoolID)
+			}
+		} else if role == "admin" || role == "dapur" {
+			// Admin/Dapur: only see deliveries belonging to couriers in their dapur
 			if dapurID, ok := c.Get("dapur_id"); ok && dapurID != nil {
 				// Get all courier IDs in this dapur
 				var courierIDs []uint
@@ -347,10 +482,28 @@ func (h *Handler) UpdateDeliveryStatus(c *gin.Context) {
 	if req.Status == "delivered" {
 		now := time.Now()
 		updates["actual_delivery_time"] = &now
+		
+		// Hapus demand sekolah dari daftar antrean
+		h.DB.Model(&models.School{}).Where("id = ?", delivery.SchoolID).Update("demand_quantity", 0)
 	}
 
 	h.DB.Model(&delivery).Updates(updates)
 	JSON(c, 200, "Delivery status updated", delivery)
+}
+
+func (h *Handler) CancelDeliveriesForSchool(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	var guru models.User
+	if err := h.DB.First(&guru, "id = ?", userID).Error; err != nil || guru.SchoolID == nil {
+		JSON(c, 403, "Not assigned to a school", nil)
+		return
+	}
+
+	h.DB.Model(&models.Delivery{}).
+		Where("school_id = ? AND status IN ('pending', 'in_transit')", *guru.SchoolID).
+		Update("status", "failed") // Failed or Cancelled. For now "failed" stops the delivery.
+
+	JSON(c, 200, "Semua pengiriman hari ini telah dibatalkan karena libur.", nil)
 }
 
 func (h *Handler) AssignCourier(c *gin.Context) {
@@ -639,6 +792,44 @@ func (h *Handler) UpdateCustomLabel(c *gin.Context) {
 }
 
 // ============================================================================
+// Global Settings (MySQL) — For SaaS White-labeling
+// ============================================================================
+
+// GetSettings returns all global settings as a key-value map.
+// GET /api/settings
+func (h *Handler) GetSettings(c *gin.Context) {
+	var settings []models.GlobalSetting
+	h.CustomDB.Find(&settings)
+
+	// Map them for easier frontend consumption
+	resp := make(map[string]string)
+	for _, s := range settings {
+		resp[s.Key] = s.Value
+	}
+
+	JSON(c, 200, "Settings retrieved", resp)
+}
+
+// UpdateSettings updates multiple settings at once.
+// PUT /api/settings
+func (h *Handler) UpdateSettings(c *gin.Context) {
+	var req map[string]string
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request body", nil)
+		return
+	}
+
+	for k, v := range req {
+		var setting models.GlobalSetting
+		// Upsert logic
+		h.CustomDB.Where("key = ?", k).FirstOrCreate(&setting)
+		h.CustomDB.Model(&setting).Where("key = ?", k).Update("value", v)
+	}
+
+	JSON(c, 200, "Settings updated successfully", req)
+}
+
+// ============================================================================
 // Health Check
 // ============================================================================
 
@@ -691,4 +882,60 @@ func generateJWT(userID uint, role string, dapurID *uint, cfg *config.Config) (s
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(cfg.JWTSecret))
+}
+
+// ============================================================================
+// Feedbacks CRUD
+// ============================================================================
+
+func (h *Handler) CreateFeedback(c *gin.Context) {
+	var req struct {
+		Message string `json:"message" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSON(c, 400, "Invalid request: "+err.Error(), nil)
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	uID := userID.(uint)
+	
+	// Get the guru's school and dapur
+	var guru models.User
+	if err := h.DB.First(&guru, "id = ?", uID).Error; err != nil || guru.SchoolID == nil || guru.DapurID == nil {
+		JSON(c, 403, "Guru is not assigned to a school or dapur", nil)
+		return
+	}
+
+	feedback := models.Feedback{
+		GuruID:   uID,
+		SchoolID: *guru.SchoolID,
+		DapurID:  *guru.DapurID,
+		Message:  req.Message,
+	}
+
+	if err := h.DB.Create(&feedback).Error; err != nil {
+		JSON(c, 500, "Failed to save feedback", nil)
+		return
+	}
+
+	JSON(c, 201, "Feedback submitted", feedback)
+}
+
+func (h *Handler) GetFeedbacks(c *gin.Context) {
+	var feedbacks []models.Feedback
+	query := h.DB.Preload("Guru").Preload("School").Order("created_at DESC")
+
+	role, _ := c.Get("role")
+	if role == "guru" {
+		userID, _ := c.Get("user_id")
+		query = query.Where("guru_id = ?", userID.(uint))
+	} else if role == "dapur" || role == "admin" {
+		if dapurID, exists := c.Get("dapur_id"); exists && dapurID != nil {
+			query = query.Where("dapur_id = ?", dapurID)
+		}
+	}
+
+	query.Find(&feedbacks)
+	JSON(c, 200, "Feedbacks retrieved", feedbacks)
 }

@@ -69,6 +69,7 @@ func Setup(dbCore *gorm.DB, dbCustom *gorm.DB, cfg *config.Config, osrmClient *o
 	{
 		ingredients.GET("/", h.GetIngredients)
 		ingredients.POST("/", middleware.RoleRequired("admin", "dapur"), h.CreateIngredient)
+		ingredients.DELETE("/:id", middleware.RoleRequired("admin", "dapur"), h.DeleteIngredient)
 	}
 
 	// ── Menus (admin + dapur) ────────────────────────────────────
@@ -87,6 +88,7 @@ func Setup(dbCore *gorm.DB, dbCustom *gorm.DB, cfg *config.Config, osrmClient *o
 	{
 		schedules.GET("/", h.GetSchedules)
 		schedules.POST("/", middleware.RoleRequired("admin", "dapur"), h.CreateSchedule)
+		schedules.PUT("/:id", middleware.RoleRequired("admin", "dapur"), h.UpdateSchedule)
 	}
 
 	// ── Expiration Calculator (admin + dapur + kurir) ────────────
@@ -94,15 +96,23 @@ func Setup(dbCore *gorm.DB, dbCustom *gorm.DB, cfg *config.Config, osrmClient *o
 		middleware.RoleRequired("admin", "dapur", "kurir"), h.CalculateExpiration)
 
 	// ── Couriers (admin only) ────────────────────────────────────
-	protected.GET("/couriers", middleware.RoleRequired("admin"), h.GetCouriers)
+	protected.GET("/couriers", middleware.RoleRequired("admin", "dapur"), h.GetCouriers)
 
 	// ── Deliveries (admin + kurir) ───────────────────────────────
 	deliveries := protected.Group("/deliveries")
 	{
-		deliveries.GET("/", h.GetDeliveries)                                              // all roles
-		deliveries.POST("/", middleware.RoleRequired("admin"), h.CreateDelivery)           // admin only
+		deliveries.GET("/", h.GetDeliveries)
+		deliveries.POST("/", middleware.RoleRequired("admin", "dapur"), h.CreateDelivery)
 		deliveries.PUT("/:id/status", middleware.RoleRequired("admin", "kurir"), h.UpdateDeliveryStatus)
-		deliveries.PUT("/:id/assign", middleware.RoleRequired("admin"), h.AssignCourier)   // admin only
+		deliveries.PUT("/:id/assign", middleware.RoleRequired("admin", "dapur"), h.AssignCourier)
+		deliveries.PUT("/cancel-for-school", middleware.RoleRequired("guru"), h.CancelDeliveriesForSchool)
+	}
+
+	// ── Feedbacks (guru + dapur + admin) ─────────────────────────
+	feedbacks := protected.Group("/feedbacks")
+	{
+		feedbacks.GET("/", middleware.RoleRequired("admin", "dapur", "guru"), h.GetFeedbacks)
+		feedbacks.POST("/", middleware.RoleRequired("guru"), h.CreateFeedback)
 	}
 
 	// ── Customized Settings (SQLite) — Admin only ───────────────
@@ -135,6 +145,10 @@ func Setup(dbCore *gorm.DB, dbCustom *gorm.DB, cfg *config.Config, osrmClient *o
 	{
 		routing.POST("/geometry", middleware.RoleRequired("kurir", "admin"), h.GetRoutingGeometry)
 	}
+
+	// ── Global Settings (Public for branding, PUT for admin) ────
+	api.GET("/settings", h.GetSettings)
+	protected.PUT("/settings", middleware.RoleRequired("admin"), h.UpdateSettings)
 
 	// ── Fallback 404 ─────────────────────────────────────────────
 	r.NoRoute(func(c *gin.Context) {

@@ -15,14 +15,17 @@ const DEPOT = { latitude: -7.9666, longitude: 112.6326 }
 export default function TrackingScreen() {
   const [currentLocation, setCurrentLocation] = useState(null)
   const [deliveries, setDeliveries] = useState([])
-  const [routeCoords, setRouteCoords] = useState([])
+  const [activeRouteCoords, setActiveRouteCoords] = useState([])
+  const [futureRouteCoords, setFutureRouteCoords] = useState([])
   const [routeMode, setRouteMode] = useState(null)   // 'osrm' | 'straight'
   const [statusLog, setStatusLog] = useState([])
   const [uploadCount, setUploadCount] = useState(0)
   const [isReady, setIsReady] = useState(false)
+  const [isNavigating, setIsNavigating] = useState(true)
 
   const mapRef = useRef(null)
-  const gpsCacheInterval = useRef(null)
+  const gpsWatcher = useRef(null)
+  const lastCacheTime = useRef(0)
   const batchUploadInterval = useRef(null)
   const appStateRef = useRef(AppState.currentState)
 
@@ -46,17 +49,24 @@ export default function TrackingScreen() {
     const ok = await requestLocation()
     if (!ok) return
 
-    // 1. Start GPS background tracking (silent)
+    // 1. Get initial location
+    let initialLoc = null;
+    try {
+      initialLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setCurrentLocation(initialLoc);
+    } catch {}
+
+    // 2. Start GPS background tracking (silent)
     startGPSBackground()
 
-    // 2. Fetch today's deliveries for this courier
-    await fetchDeliveries()
+    // 3. Fetch today's deliveries for this courier
+    await fetchDeliveries(initialLoc)
 
     setIsReady(true)
   }
 
   function cleanup() {
-    if (gpsCacheInterval.current) clearInterval(gpsCacheInterval.current)
+    if (gpsWatcher.current) gpsWatcher.current.remove()
     if (batchUploadInterval.current) clearInterval(batchUploadInterval.current)
   }
 
@@ -77,29 +87,40 @@ export default function TrackingScreen() {
   }
 
   // ── Background GPS (silent, fully automatic) ──────────────────
-  function startGPSBackground() {
-    addLog('🟢 GPS tracking berjalan otomatis')
+  async function startGPSBackground() {
+    addLog('🟢 GPS live tracking berjalan (1 detik update)')
 
-    // Record position every 10 seconds
-    gpsCacheInterval.current = setInterval(async () => {
-      try {
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        })
+    // Real-time location watcher (Smooth map movement)
+    gpsWatcher.current = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 1000,     // UI updates every 1 second
+        distanceInterval: 1,    // UI updates every 1 meter
+      },
+      (loc) => {
         setCurrentLocation(loc)
-        await cachePoint(loc)
 
-        // Auto-center map on current position
-        if (mapRef.current) {
-          mapRef.current.animateToRegion({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            latitudeDelta: 0.03,
-            longitudeDelta: 0.03,
-          }, 1000)
+        // Throttle saving to local storage (only every 10 seconds)
+        const now = Date.now()
+        if (now - lastCacheTime.current > TRACKING_CONFIG.GPS_CACHE_INTERVAL_MS) {
+          cachePoint(loc)
+          lastCacheTime.current = now
         }
-      } catch {}
-    }, TRACKING_CONFIG.GPS_CACHE_INTERVAL_MS)
+
+        // Auto-center map on current position if in Navigation Mode
+        if (mapRef.current && isNavigating) {
+          mapRef.current.animateCamera({
+            center: {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+            },
+            heading: loc.coords.heading || 0,
+            pitch: 60,
+            zoom: 18,
+          }, { duration: 1000 })
+        }
+      }
+    )
 
     // Auto-upload batch every 3 minutes
     batchUploadInterval.current = setInterval(async () => {
@@ -144,7 +165,7 @@ export default function TrackingScreen() {
 
       const ctrl = new AbortController()
       const tid = setTimeout(() => ctrl.abort(), 15000)
-      const res = await fetch(`${API_CONFIG.BACKEND_URL}/api/tracking/batch/`, {
+      const res = await fetch(`${API_CONFIG.BACKEND_URL}/api/tracking/batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ courier_id: user.id, points }),
@@ -160,7 +181,7 @@ export default function TrackingScreen() {
   }
 
   // ── Fetch Today's Deliveries ───────────────────────────────────
-  async function fetchDeliveries() {
+  async function fetchDeliveries(loc = currentLocation) {
     addLog('📦 Mengambil data pengiriman hari ini...')
     try {
       const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
@@ -169,7 +190,7 @@ export default function TrackingScreen() {
 
       const ctrl = new AbortController()
       const tid = setTimeout(() => ctrl.abort(), 15000)
-      const res = await fetch(`${API_CONFIG.BACKEND_URL}/api/deliveries/`, {
+      const res = await fetch(`${API_CONFIG.BACKEND_URL}/api/deliveries`, {
         headers: { 'Authorization': `Bearer ${token}` },
         signal: ctrl.signal,
       })
@@ -183,11 +204,18 @@ export default function TrackingScreen() {
         ? all.filter(d => d.courier_id === user.id && ['pending', 'in_transit'].includes(d.status))
         : all.filter(d => ['pending', 'in_transit'].includes(d.status))
 
+      // Sort by AI urgency (epsilon_score descending)
+      mine.sort((a, b) => {
+        const scoreA = a.schedule?.epsilon_score || 0;
+        const scoreB = b.schedule?.epsilon_score || 0;
+        return scoreB - scoreA;
+      });
+
       setDeliveries(mine)
       addLog(`✅ ${mine.length} sekolah perlu diantarkan`)
 
       if (mine.length > 0) {
-        await buildRoute(mine)
+        await buildRoute(mine, loc)
       }
     } catch (e) {
       addLog(`❌ Gagal ambil data: ${e.name === 'AbortError' ? 'Timeout' : e.message}`)
@@ -195,7 +223,7 @@ export default function TrackingScreen() {
   }
 
   // ── Build Route from Deliveries ────────────────────────────────
-  async function buildRoute(deliveryList) {
+  async function buildRoute(deliveryList, loc) {
     addLog('🧠 Menghitung rute optimal...')
 
     const schools = deliveryList
@@ -205,8 +233,6 @@ export default function TrackingScreen() {
         name: d.school.name,
         latitude: parseFloat(d.school.latitude),
         longitude: parseFloat(d.school.longitude),
-        demand: d.school.demand_quantity || 10,
-        time_window_minutes: 120,
       }))
 
     if (schools.length === 0) {
@@ -214,50 +240,60 @@ export default function TrackingScreen() {
       return
     }
 
-    // Build straight-line route (Depot → schools)
-    const straightLine = [
-      { latitude: DEPOT.latitude, longitude: DEPOT.longitude },
-      ...schools.map(s => ({ latitude: s.latitude, longitude: s.longitude })),
-    ]
+    const startLoc = loc ? { latitude: loc.coords.latitude, longitude: loc.coords.longitude } : DEPOT;
 
-    // Try to get road-following route from OSRM via Golang backend
-    let usedRoad = false
+    // Active Route (Courier -> First Destination)
+    const activeWaypoints = [
+      { lat: startLoc.latitude, lng: startLoc.longitude },
+      { lat: schools[0].latitude, lng: schools[0].longitude }
+    ];
+
+    // Future Route (First Destination -> Rest of schools)
+    let futureWaypoints = [];
+    if (schools.length > 1) {
+      futureWaypoints = schools.map(s => ({ lat: s.latitude, lng: s.longitude }));
+    }
+
+    let usedRoad = false;
     try {
       const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
-      const waypoints = [
-        { lat: DEPOT.latitude, lng: DEPOT.longitude },
-        ...schools.map(s => ({ lat: s.latitude, lng: s.longitude })),
-      ]
-      const ctrl = new AbortController()
-      const tid = setTimeout(() => ctrl.abort(), 8000) // short timeout
-      const geoRes = await fetch(`${API_CONFIG.BACKEND_URL}/api/routing/geometry/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ points: waypoints }),
-        signal: ctrl.signal,
-      })
-      clearTimeout(tid)
-      if (geoRes.ok) {
-        const geoData = await geoRes.json()
-        const encoded = geoData?.data?.geometry
-        if (encoded) {
-          const decoded = decodePolyline(encoded)
-          if (decoded.length > 1) {
-            setRouteCoords(decoded)
-            setRouteMode('osrm')
-            usedRoad = true
-            addLog('🗺️ Rute jalan (OSRM) berhasil')
-            fitMap(decoded)
+      
+      const fetchOSRM = async (pts) => {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 8000);
+        const geoRes = await fetch(`${API_CONFIG.BACKEND_URL}/api/routing/geometry`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ points: pts }),
+          signal: ctrl.signal,
+        });
+        clearTimeout(tid);
+        if (geoRes.ok) {
+          const geoData = await geoRes.json();
+          if (geoData?.data?.geometry) {
+            return decodePolyline(geoData.data.geometry);
           }
         }
+        return [];
+      };
+
+      const activeDecoded = await fetchOSRM(activeWaypoints);
+      const futureDecoded = futureWaypoints.length > 1 ? await fetchOSRM(futureWaypoints) : [];
+
+      if (activeDecoded.length > 1) {
+        setActiveRouteCoords(activeDecoded);
+        setFutureRouteCoords(futureDecoded);
+        setRouteMode('osrm');
+        usedRoad = true;
+        addLog('🗺️ Rute navigasi aktif berhasil');
       }
     } catch {}
 
     if (!usedRoad) {
-      setRouteCoords(straightLine)
-      setRouteMode('straight')
-      addLog('📏 Rute garis lurus (OSRM tidak tersedia)')
-      fitMap(straightLine)
+      setActiveRouteCoords([ { latitude: startLoc.latitude, longitude: startLoc.longitude }, { latitude: schools[0].latitude, longitude: schools[0].longitude } ]);
+      setFutureRouteCoords(futureWaypoints.map(w => ({ latitude: w.lat, longitude: w.lng })));
+      setRouteMode('straight');
+      addLog('📏 Rute garis lurus (OSRM tidak tersedia)');
     }
   }
 
@@ -284,13 +320,59 @@ export default function TrackingScreen() {
     return pts
   }
 
-  // ── Render ─────────────────────────────────────────────────────
+  // ── Update Delivery Status ─────────────────────────────────────
+  async function updateStatus(deliveryId, newStatus) {
+    addLog(`🔄 Mengupdate status ke ${newStatus}...`)
+    try {
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
+      const res = await fetch(`${API_CONFIG.BACKEND_URL}/api/deliveries/${deliveryId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (res.ok) {
+        addLog(`✅ Status berhasil diupdate: ${newStatus}`)
+        await fetchDeliveries() // Refresh list
+      } else {
+        addLog(`❌ Gagal update status.`)
+      }
+    } catch (e) {
+      addLog(`❌ Error update status: ${e.message}`)
+    }
+  }
+
+  // Google Maps dark navigation style
+  const darkMapStyle = [
+    { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
+    { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
+    { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
+    { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
+    { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
+    { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#263c3f" }] },
+    { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#6b9a76" }] },
+    { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
+    { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
+    { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
+    { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#746855" }] },
+    { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#1f2835" }] },
+    { featureType: "road.highway", elementType: "labels.text.fill", stylers: [{ color: "#f3d19c" }] },
+    { featureType: "transit", elementType: "geometry", stylers: [{ color: "#2f3948" }] },
+    { featureType: "transit.station", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
+    { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
+    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
+    { featureType: "water", elementType: "labels.text.stroke", stylers: [{ color: "#17263c" }] }
+  ];
+
   return (
     <SafeAreaView style={styles.container}>
       <MapView
         ref={mapRef}
         style={styles.map}
         initialRegion={{ ...DEPOT, latitudeDelta: 0.06, longitudeDelta: 0.06 }}
+        customMapStyle={darkMapStyle}
+        showsUserLocation={true}
+        showsCompass={false}
+        onPanDrag={() => setIsNavigating(false)}
       >
         {/* Depot — starting point */}
         <Marker coordinate={DEPOT} title="Dapur Pusat" description="Titik awal pengiriman" pinColor="#22c55e" />
@@ -317,20 +399,41 @@ export default function TrackingScreen() {
             />
           ))}
 
-        {/* Route line */}
-        {routeCoords.length > 1 && (
+        {/* Future dimmed route */}
+        {futureRouteCoords.length > 1 && (
           <Polyline
-            coordinates={routeCoords}
-            strokeColor={routeMode === 'osrm' ? '#3b82f6' : '#f97316'}
-            strokeWidth={routeMode === 'osrm' ? 5 : 3}
+            coordinates={futureRouteCoords}
+            strokeColor="#4b5563" /* Grayed out */
+            strokeWidth={4}
+            lineDashPattern={[10, 10]}
+            lineJoin="round"
+          />
+        )}
+
+        {/* Active Spotlight Route */}
+        {activeRouteCoords.length > 1 && (
+          <Polyline
+            coordinates={activeRouteCoords}
+            strokeColor={routeMode === 'osrm' ? '#0ea5e9' : '#f97316'} /* Bright cyan blue for active */
+            strokeWidth={6}
             lineDashPattern={routeMode === 'straight' ? [8, 5] : undefined}
             lineJoin="round"
           />
         )}
       </MapView>
 
-      {/* Floating status panel */}
+        {/* Floating status panel */}
       <View style={styles.panel}>
+        {/* Recenter Button */}
+        {!isNavigating && (
+          <TouchableOpacity 
+            style={styles.recenterBtn} 
+            onPress={() => setIsNavigating(true)}
+          >
+            <Text style={styles.recenterBtnTxt}>⌖ Tengahkan</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Header */}
         <View style={styles.panelHeader}>
           <View>
@@ -367,6 +470,18 @@ export default function TrackingScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.deliverySchool}>{d.school?.name || 'Sekolah #' + d.school_id}</Text>
                 <Text style={styles.deliveryStatus}>{d.status?.replace('_', ' ').toUpperCase()}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {d.status === 'pending' && (
+                  <TouchableOpacity onPress={() => updateStatus(d.id, 'in_transit')} style={styles.actionBtn}>
+                    <Text style={styles.actionBtnTxt}>Perjalanan ke {d.school?.name}</Text>
+                  </TouchableOpacity>
+                )}
+                {d.status === 'in_transit' && (
+                  <TouchableOpacity onPress={() => updateStatus(d.id, 'delivered')} style={[styles.actionBtn, { backgroundColor: '#22c55e' }]}>
+                    <Text style={styles.actionBtnTxt}>Tiba (Selesai)</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           ))}
@@ -413,6 +528,10 @@ const styles = StyleSheet.create({
   deliverySchool: { color: '#fff', fontSize: 13, fontWeight: '500' },
   deliveryStatus: { color: '#6b7280', fontSize: 10, marginTop: 1 },
   emptyTxt: { color: '#4b5563', fontSize: 13, textAlign: 'center', paddingVertical: 10 },
-  logBox: { maxHeight: 70, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 10, padding: 8 },
+  logBox: { maxHeight: 70, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 10, padding: 8, marginTop: 10 },
   logTxt: { color: '#6b7280', fontSize: 10, marginBottom: 2, fontFamily: 'monospace' },
+  actionBtn: { backgroundColor: '#3b82f6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
+  actionBtnTxt: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  recenterBtn: { position: 'absolute', top: -50, right: 16, backgroundColor: '#3b82f6', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 5 },
+  recenterBtnTxt: { color: '#fff', fontSize: 13, fontWeight: 'bold' },
 })

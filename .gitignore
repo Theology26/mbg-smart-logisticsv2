@@ -1,30 +1,62 @@
-*.log
+# ============================================================================
+# MBG Smart Logistics — Global Monorepo Gitignore
+# ============================================================================
+
+# --- OS Specific ---
 .DS_Store
-.env
-.env.backup
-.env.production
-.phpactor.json
-.phpunit.result.cache
-/.fleet
-/.idea
-/.nova
-/.phpunit.cache
-/.vscode
-/.zed
-/auth.json
-/node_modules
-/public/build
-/public/hot
-/public/storage
-/storage/*.key
-/storage/pail
-/vendor
-Homestead.json
-Homestead.yaml
 Thumbs.db
-/laravel-core/vendor/
-/laravel-core/.env
-/laravel-core/node_modules/
-/go-api/*.exe
-/go-api/go-api
-/go-api/.env
+*.log
+*.tmp
+*.swp
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# --- Environment Variables (CRITICAL) ---
+.env
+.env.local
+.env.*.local
+*.key
+auth.json
+
+# --- Database & Heavy Data ---
+db-data/
+osrm-data/
+*.sql
+*.sqlite
+
+# --- Golang (Backend) ---
+backend-golang/bin/
+backend-golang/*.exe
+backend-golang/backend-golang
+backend-golang/vendor/
+
+# --- Laravel & Vue (Frontend) ---
+frontend-web/node_modules/
+frontend-web/vendor/
+frontend-web/public/build/
+frontend-web/public/hot/
+frontend-web/storage/*.key
+frontend-web/.phpunit.result.cache
+
+# --- React Native & Expo (Mobile) ---
+mobile-app/node_modules/
+mobile-app/.expo/
+mobile-app/dist/
+mobile-app/npm-debug.log*
+
+# --- Python (AI Services) ---
+ai-services/__pycache__/
+ai-services/*.pyc
+ai-services/.ipynb_checkpoints/
+ai-services/venv/
+ai-services/env/
+ai-services/testnota/
+
+# --- Build Artifacts ---
+dist/
+build/
+out/

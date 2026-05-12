@@ -1,0 +1,36 @@
+=== DAFTAR AKUN & AKSES LOGIN MBG SMART LOGISTICS ===
+
+Semua akun di sistem menggunakan password yang sama.
+Password Default: password
+
+==================================================
+1. SUPERADMIN (Akses penuh ke semua tenant)
+Login: Web Dashboard (http://localhost:8000)
+Email: admin@mbg.com
+
+==================================================
+2. TENANT DAPUR / SPPG (Hanya bisa melihat stok & jadwal dapurnya sendiri)
+Login: Web Dashboard / Mobile App Dapur
+- dapur1@mbg.com (SPPG Blimbing)
+- dapur2@mbg.com (SPPG Klojen)
+- dapur3@mbg.com (SPPG Lowokwaru)
+- dapur4@mbg.com (SPPG Sukun)
+- dapur5@mbg.com (SPPG Kedungkandang)
+
+==================================================
+3. KURIR / COURIER (Akses GPS Tracking & Pengantaran)
+Login: Mobile App Kurir (Lewat Expo Go di HP)
+- kurir1@mbg.com (Kurir wilayah Blimbing)
+- kurir2@mbg.com (Kurir wilayah Klojen)
+- kurir3@mbg.com (Kurir wilayah Lowokwaru)
+- kurir4@mbg.com (Kurir wilayah Sukun)
+- kurir5@mbg.com (Kurir wilayah Kedungkandang)
+
+==================================================
+4. GURU SEKOLAH (Akses Read-Only Live Tracking Peta)
+Login: Web Dashboard (http://localhost:8000)
+- guru1@mbg.com
+- guru2@mbg.com
+... (berlanjut terus sampai)
+- guru50@mbg.com
+*Setiap akun guru otomatis terkunci ke 1 SD/SMP spesifik.
