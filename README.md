@@ -43,13 +43,13 @@ Sistem ini telah divalidasi melalui serangkaian pengujian empiris untuk persiapa
 
 ### 1. Routing Performance: Safety vs. Efficiency
 Agen AI kami sengaja mengorbankan jarak tempuh demi menjamin kesegaran makanan.
-![Routing Benchmark](file:///c:/mbg-smart-logistics/ieee_ors_benchmark.png)
+![Routing Benchmark](./ieee_ors_benchmark.png)
 
 *   **Hasil**: Peningkatan **76.9%** pada indeks kesegaran minimum dibandingkan metode *Greedy* konvensional.
 
 ### 2. Vision Accuracy: Handwritten Context Extraction
 Perbandingan akurasi ekstraksi data dari nota belanja pasar tradisional.
-![Vision Benchmark](file:///c:/mbg-smart-logistics/vision_empiric_test.png)
+![Vision Benchmark](./vision_empiric_test.png)
 
 *   **Hasil**: Akurasi ekstraksi mencapai **100%** berkat kemampuan pemahaman konteks semantik dari Llama 3.2.
 
@@ -58,10 +58,10 @@ Perbandingan akurasi ekstraksi data dari nota belanja pasar tradisional.
 ## 🗺️ System Architecture & Design
 
 ### Database Schema (ERD)
-![ERD Diagram](file:///c:/mbg-smart-logistics/ERD%20MBG%20SMART%20LOGISTICS.png)
+![ERD Diagram](./erd_diagram.png)
 
 ### Use Case Diagram
-![Use Case](file:///c:/mbg-smart-logistics/USE%20CASE%20MBG%20SMART%20LOGISTICS.png)
+![Use Case](./use_case_diagram.png)
 
 ---
 
@@ -85,7 +85,7 @@ Gunakan skrip otomatis yang telah disediakan untuk menyalakan seluruh ekosistem 
 
 ## 🔐 Akun Akses Demo
 
-Daftar akun untuk pengujian sistem dapat ditemukan di file [akun_mbg.txt](file:///c:/mbg-smart-logistics/akun_mbg.txt).
+Daftar akun untuk pengujian sistem dapat ditemukan di file `akun_mbg.txt`.
 
 *   **Admin**: `admin@mbg.com` / `password`
 *   **Dapur**: `dapur@mbg.com` / `password`
